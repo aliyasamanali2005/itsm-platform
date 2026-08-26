@@ -27,11 +27,29 @@ export const createRCAController = async (
       });
     }
 
-    const organizationId = req.user.organizationId;
+    if (!req.user.organizationId) {
+      return res.status(403).json({
+        success: false,
+        message: "Organization access is required",
+      });
+    }
+
+    if (!req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: "User authentication is required",
+      });
+    }
 
     const rca = await createRCA({
       ...req.body,
-      organizationId,
+
+      // Always take organization from authenticated user
+      organizationId: req.user.organizationId,
+
+      // Default identifiedBy to current authenticated user
+      identifiedBy:
+        req.body.identifiedBy || req.user.id,
     });
 
     return res.status(201).json({
@@ -65,10 +83,15 @@ export const getRCAsController = async (
       });
     }
 
-    const organizationId = req.user.organizationId;
+    if (!req.user.organizationId) {
+      return res.status(403).json({
+        success: false,
+        message: "Organization access is required",
+      });
+    }
 
     const rcas = await getRCAsByOrganization(
-      organizationId
+      req.user.organizationId
     );
 
     return res.status(200).json({
@@ -102,13 +125,18 @@ export const getRCAController = async (
       });
     }
 
-    const id = String(req.params.id);
+    if (!req.user.organizationId) {
+      return res.status(403).json({
+        success: false,
+        message: "Organization access is required",
+      });
+    }
 
-    const organizationId = req.user.organizationId;
+    const id = String(req.params.id);
 
     const rca = await getRCAById(
       id,
-      organizationId
+      req.user.organizationId
     );
 
     if (!rca) {
@@ -148,15 +176,20 @@ export const getRCAByProblemController = async (
       });
     }
 
+    if (!req.user.organizationId) {
+      return res.status(403).json({
+        success: false,
+        message: "Organization access is required",
+      });
+    }
+
     const problemId = String(
       req.params.problemId
     );
 
-    const organizationId = req.user.organizationId;
-
     const rca = await getRCAByProblem(
       problemId,
-      organizationId
+      req.user.organizationId
     );
 
     if (!rca) {
@@ -199,14 +232,35 @@ export const updateRCAController = async (
       });
     }
 
+    if (!req.user.organizationId) {
+      return res.status(403).json({
+        success: false,
+        message: "Organization access is required",
+      });
+    }
+
+    if (!req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: "User authentication is required",
+      });
+    }
+
     const id = String(req.params.id);
 
-    const organizationId = req.user.organizationId;
-
+    // IMPORTANT:
+    // updateRCA now expects:
+    //
+    // 1. RCA ID
+    // 2. Organization ID
+    // 3. Request body
+    // 4. User role
+    //
     const rca = await updateRCA(
       id,
-      organizationId,
-      req.body
+      req.user.organizationId,
+      req.body,
+      req.user.role
     );
 
     if (!rca) {
@@ -247,13 +301,18 @@ export const deleteRCAController = async (
       });
     }
 
-    const id = String(req.params.id);
+    if (!req.user.organizationId) {
+      return res.status(403).json({
+        success: false,
+        message: "Organization access is required",
+      });
+    }
 
-    const organizationId = req.user.organizationId;
+    const id = String(req.params.id);
 
     const deletedRCA = await deleteRCA(
       id,
-      organizationId
+      req.user.organizationId
     );
 
     if (!deletedRCA) {

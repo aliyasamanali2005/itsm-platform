@@ -17,6 +17,22 @@ export type SLAPriority =
   | "Critical";
 
 // ==========================================
+// BUSINESS HOURS
+// ==========================================
+
+export interface SLABusinessHours {
+  timezone: string;
+
+  startHour: number;
+  startMinute: number;
+
+  endHour: number;
+  endMinute: number;
+
+  workingDays: number[];
+}
+
+// ==========================================
 // INTERFACE
 // ==========================================
 
@@ -45,10 +61,68 @@ export interface ISLA extends Document {
 
   resolutionBreached: boolean;
 
+  businessHours: SLABusinessHours;
+
   createdAt: Date;
 
   updatedAt: Date;
 }
+
+// ==========================================
+// BUSINESS HOURS SUB-SCHEMA
+// ==========================================
+
+const businessHoursSchema =
+  new Schema<SLABusinessHours>(
+    {
+      timezone: {
+        type: String,
+        required: true,
+        default: "Asia/Karachi",
+      },
+
+      startHour: {
+        type: Number,
+        required: true,
+        min: 0,
+        max: 23,
+        default: 9,
+      },
+
+      startMinute: {
+        type: Number,
+        required: true,
+        min: 0,
+        max: 59,
+        default: 0,
+      },
+
+      endHour: {
+        type: Number,
+        required: true,
+        min: 0,
+        max: 23,
+        default: 17,
+      },
+
+      endMinute: {
+        type: Number,
+        required: true,
+        min: 0,
+        max: 59,
+        default: 0,
+      },
+
+      workingDays: {
+        type: [Number],
+        required: true,
+        default: [1, 2, 3, 4, 5],
+      },
+    },
+    {
+      _id: false,
+    }
+  );
 
 // ==========================================
 // SCHEMA
@@ -130,6 +204,15 @@ const slaSchema = new Schema<ISLA>(
       type: Boolean,
       default: false,
     },
+
+    // ==========================================
+    // BUSINESS HOURS
+    // ==========================================
+
+    businessHours: {
+      type: businessHoursSchema,
+      required: true,
+    },
   },
   {
     timestamps: true,
@@ -153,6 +236,11 @@ slaSchema.index({
 slaSchema.index({
   organizationId: 1,
   resolutionDueAt: 1,
+});
+
+slaSchema.index({
+  organizationId: 1,
+  incidentId: 1,
 });
 
 // ==========================================

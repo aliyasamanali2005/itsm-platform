@@ -8,6 +8,8 @@ import {
   deleteIncident,
 } from "./incident.service";
 
+import { generateIncidentPdf } from "./incident.pdf.service";
+
 import { AuthRequest } from "../../middleware/auth.middleware";
 
 // ==========================================
@@ -121,6 +123,97 @@ export const getIncidentController = async (
       success: false,
       message: error.message,
     });
+  }
+};
+
+// ==========================================
+// EXPORT INCIDENT PDF
+// ADMIN + EMPLOYEE
+// ==========================================
+
+export const exportIncidentPdfController = async (
+  req: AuthRequest,
+  res: Response
+) => {
+  try {
+    // ==========================================
+    // ORGANIZATION VALIDATION
+    // ==========================================
+
+    if (!req.user?.organizationId) {
+      return res.status(403).json({
+        success: false,
+        message: "Organization access is required",
+      });
+    }
+
+    // ==========================================
+    // GET INCIDENT
+    // ==========================================
+
+    const incident = await getIncidentById(
+      req.params.id as string,
+      req.user.organizationId
+    );
+
+    // ==========================================
+    // INCIDENT NOT FOUND
+    // ==========================================
+
+    if (!incident) {
+      return res.status(404).json({
+        success: false,
+        message: "Incident not found",
+      });
+    }
+
+    // ==========================================
+    // GENERATE PDF
+    // ==========================================
+
+    const pdf = generateIncidentPdf(incident);
+
+    const filename = `incident-${incident.incidentId}.pdf`;
+
+    // ==========================================
+    // RESPONSE HEADERS
+    // ==========================================
+
+    res.setHeader(
+      "Content-Type",
+      "application/pdf"
+    );
+
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${filename}"`
+    );
+
+    // ==========================================
+    // STREAM PDF TO CLIENT
+    // ==========================================
+
+    pdf.pipe(res);
+
+    pdf.end();
+  } catch (error: any) {
+    console.error(
+      "Incident PDF export failed:",
+      error
+    );
+
+    // ==========================================
+    // ERROR RESPONSE
+    // ==========================================
+
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+        message:
+          error.message ||
+          "Failed to generate incident PDF",
+      });
+    }
   }
 };
 

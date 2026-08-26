@@ -1,7 +1,10 @@
-import mongoose, { Document, Schema } from "mongoose";
+import mongoose, {
+  Document,
+  Schema,
+} from "mongoose";
 
 // ==========================================
-// TYPES
+// RCA STATUS
 // ==========================================
 
 export type RCAStatus =
@@ -11,10 +14,11 @@ export type RCAStatus =
   | "Approved";
 
 // ==========================================
-// INTERFACE
+// RCA INTERFACE
 // ==========================================
 
-export interface IRCA extends Document {
+export interface IRCA
+  extends Document {
   rcaId: string;
 
   problem: mongoose.Types.ObjectId;
@@ -46,121 +50,126 @@ export interface IRCA extends Document {
 // SCHEMA
 // ==========================================
 
-const rcaSchema = new Schema<IRCA>(
-  {
-    rcaId: {
-      type: String,
-      required: true,
-      trim: true,
-    },
+const rcaSchema =
+  new Schema<IRCA>(
+    {
+      // ==========================================
+      // RCA ID
+      // ==========================================
 
-    // ==========================================
-    // PROBLEM REFERENCE
-    // ==========================================
-
-    problem: {
-      type: Schema.Types.ObjectId,
-      ref: "Problem",
-      required: true,
-    },
-
-    // ==========================================
-    // ROOT CAUSE
-    // ==========================================
-
-    rootCause: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-
-    // ==========================================
-    // INVESTIGATION
-    // ==========================================
-
-    investigation: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-
-    // ==========================================
-    // CONTRIBUTING FACTORS
-    // ==========================================
-
-    contributingFactors: {
-      type: [String],
-      default: [],
-    },
-
-    // ==========================================
-    // CORRECTIVE ACTIONS
-    // ==========================================
-
-    correctiveActions: {
-      type: [String],
-      default: [],
-    },
-
-    // ==========================================
-    // PREVENTIVE ACTIONS
-    // ==========================================
-
-    preventiveActions: {
-      type: [String],
-      default: [],
-    },
-
-    // ==========================================
-    // IDENTIFIED BY
-    // ==========================================
-
-    identifiedBy: {
-      type: Schema.Types.ObjectId,
-      ref: "AuthUser",
-      required: true,
-    },
-
-    // ==========================================
-    // RELATED INCIDENTS
-    // ==========================================
-
-    relatedIncidents: [
-      {
-        type: Schema.Types.ObjectId,
-        ref: "Incident",
+      rcaId: {
+        type: String,
+        required: true,
+        trim: true,
       },
-    ],
 
-    // ==========================================
-    // ORGANIZATION
-    // ==========================================
+      // ==========================================
+      // PROBLEM
+      // ==========================================
 
-    organizationId: {
-      type: Schema.Types.ObjectId,
-      ref: "Organization",
-      required: true,
-    },
+      problem: {
+        type: Schema.Types.ObjectId,
+        ref: "Problem",
+        required: true,
+      },
 
-    // ==========================================
-    // RCA STATUS
-    // ==========================================
+      // ==========================================
+      // ROOT CAUSE
+      // ==========================================
 
-    status: {
-      type: String,
-      enum: [
-        "Draft",
-        "Under Investigation",
-        "Completed",
-        "Approved",
+      rootCause: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+
+      // ==========================================
+      // INVESTIGATION
+      // ==========================================
+
+      investigation: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+
+      // ==========================================
+      // CONTRIBUTING FACTORS
+      // ==========================================
+
+      contributingFactors: {
+        type: [String],
+        default: [],
+      },
+
+      // ==========================================
+      // CORRECTIVE ACTIONS
+      // ==========================================
+
+      correctiveActions: {
+        type: [String],
+        default: [],
+      },
+
+      // ==========================================
+      // PREVENTIVE ACTIONS
+      // ==========================================
+
+      preventiveActions: {
+        type: [String],
+        default: [],
+      },
+
+      // ==========================================
+      // IDENTIFIED BY
+      // ==========================================
+
+      identifiedBy: {
+        type: Schema.Types.ObjectId,
+        ref: "AuthUser",
+        required: true,
+      },
+
+      // ==========================================
+      // RELATED INCIDENTS
+      // ==========================================
+
+      relatedIncidents: [
+        {
+          type: Schema.Types.ObjectId,
+          ref: "Incident",
+        },
       ],
-      default: "Draft",
+
+      // ==========================================
+      // ORGANIZATION
+      // ==========================================
+
+      organizationId: {
+        type: Schema.Types.ObjectId,
+        ref: "Organization",
+        required: true,
+      },
+
+      // ==========================================
+      // RCA STATUS
+      // ==========================================
+
+      status: {
+        type: String,
+        enum: [
+          "Draft",
+          "Under Investigation",
+          "Completed",
+          "Approved",
+        ],
+        default: "Draft",
+      },
     },
-  },
-  {
-    timestamps: true,
-  }
-);
+    {
+      timestamps: true,
+    }
+  );
 
 // ==========================================
 // UNIQUE RCA ID PER ORGANIZATION

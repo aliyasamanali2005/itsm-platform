@@ -14,12 +14,17 @@ import { authenticate } from "../../middleware/auth.middleware";
 const router = Router();
 
 // ==========================================
+// ALL RCA ROUTES REQUIRE AUTHENTICATION
+// ==========================================
+
+router.use(authenticate);
+
+// ==========================================
 // CREATE RCA
 // ==========================================
 
 router.post(
   "/",
-  authenticate,
   createRCAController
 );
 
@@ -29,18 +34,17 @@ router.post(
 
 router.get(
   "/",
-  authenticate,
   getRCAsController
 );
 
 // ==========================================
 // GET RCA BY PROBLEM
-// IMPORTANT: Must come before /:id
+// IMPORTANT:
+// This MUST come before /:id
 // ==========================================
 
 router.get(
   "/problem/:problemId",
-  authenticate,
   getRCAByProblemController
 );
 
@@ -50,7 +54,6 @@ router.get(
 
 router.get(
   "/:id",
-  authenticate,
   getRCAController
 );
 
@@ -60,7 +63,6 @@ router.get(
 
 router.put(
   "/:id",
-  authenticate,
   updateRCAController
 );
 
@@ -70,7 +72,6 @@ router.put(
 
 router.delete(
   "/:id",
-  authenticate,
   deleteRCAController
 );
 

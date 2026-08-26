@@ -4,6 +4,7 @@ import {
   createIncidentController,
   getIncidentsController,
   getIncidentController,
+  exportIncidentPdfController,
   updateIncidentController,
   deleteIncidentController,
 } from "./incident.controller";
@@ -35,6 +36,17 @@ router.get(
   "/",
   authenticate,
   getIncidentsController
+);
+
+// ==========================================
+// EXPORT INCIDENT PDF
+// ADMIN + EMPLOYEE
+// ==========================================
+
+router.get(
+  "/:id/pdf",
+  authenticate,
+  exportIncidentPdfController
 );
 
 // ==========================================

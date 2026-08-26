@@ -22,6 +22,24 @@ import serviceCatalogRoutes from "./modules/service-catalog/serviceCatalog.route
 import analyticsRoutes from "./modules/analytics/analytics.routes";
 import notificationRoutes from "./modules/notification/notification.routes";
 
+// ==========================================
+// INCIDENT ASSIGNMENT RULE ROUTES
+// ==========================================
+
+import incidentAssignmentRuleRoutes from "./modules/incident-assignment/incidentAssignmentRule.routes";
+
+// ==========================================
+// INCIDENT ESCALATION ROUTES
+// ==========================================
+
+import incidentEscalationRoutes from "./modules/incident-escalation/incidentEscalation.routes";
+
+// ==========================================
+// BACKGROUND JOB ROUTES
+// ==========================================
+
+import jobsRoutes from "./modules/jobs/jobs.routes";
+
 const app = express();
 
 // ==========================================
@@ -31,12 +49,25 @@ const app = express();
 app.use(
   cors({
     origin:
-      process.env.CLIENT_URL || "http://localhost:5173",
+      process.env.CLIENT_URL ||
+      "http://localhost:5173",
     credentials: true,
   })
 );
 
 app.use(express.json());
+
+// ==========================================
+// REQUEST LOGGER
+// ==========================================
+
+app.use((req, _res, next) => {
+  console.log(
+    `🔥 REQUEST: ${req.method} ${req.originalUrl}`
+  );
+
+  next();
+});
 
 // ==========================================
 // HEALTH CHECK
@@ -50,13 +81,16 @@ app.get("/api/v1/health", (_req, res) => {
 });
 
 // ==========================================
-// AUTH ROUTES
+// AUTH
 // ==========================================
 
-app.use("/api/v1/auth", authRoutes);
+app.use(
+  "/api/v1/auth",
+  authRoutes
+);
 
 // ==========================================
-// ORGANIZATION ROUTES
+// ORGANIZATIONS
 // ==========================================
 
 app.use(
@@ -65,13 +99,16 @@ app.use(
 );
 
 // ==========================================
-// USER ROUTES
+// USERS
 // ==========================================
 
-app.use("/api/v1/users", userRoutes);
+app.use(
+  "/api/v1/users",
+  userRoutes
+);
 
 // ==========================================
-// ASSET ROUTES
+// ASSETS
 // ==========================================
 
 app.use(
@@ -80,7 +117,7 @@ app.use(
 );
 
 // ==========================================
-// INCIDENT ROUTES
+// INCIDENTS
 // ==========================================
 
 app.use(
@@ -89,7 +126,25 @@ app.use(
 );
 
 // ==========================================
-// SLA ROUTES
+// INCIDENT ASSIGNMENT RULES
+// ==========================================
+
+app.use(
+  "/api/v1/incident-assignment-rules",
+  incidentAssignmentRuleRoutes
+);
+
+// ==========================================
+// INCIDENT ESCALATION
+// ==========================================
+
+app.use(
+  "/api/v1/incident-escalation",
+  incidentEscalationRoutes
+);
+
+// ==========================================
+// SLA
 // ==========================================
 
 app.use(
@@ -98,7 +153,7 @@ app.use(
 );
 
 // ==========================================
-// SERVICE REQUEST ROUTES
+// SERVICE REQUESTS
 // ==========================================
 
 app.use(
@@ -107,7 +162,7 @@ app.use(
 );
 
 // ==========================================
-// CHANGE MANAGEMENT ROUTES
+// CHANGE MANAGEMENT
 // ==========================================
 
 app.use(
@@ -116,7 +171,7 @@ app.use(
 );
 
 // ==========================================
-// PROBLEM MANAGEMENT ROUTES
+// PROBLEM MANAGEMENT
 // ==========================================
 
 app.use(
@@ -125,7 +180,7 @@ app.use(
 );
 
 // ==========================================
-// ROOT CAUSE ANALYSIS ROUTES
+// ROOT CAUSE ANALYSIS
 // ==========================================
 
 app.use(
@@ -134,7 +189,7 @@ app.use(
 );
 
 // ==========================================
-// DEPARTMENT MANAGEMENT ROUTES
+// DEPARTMENTS
 // ==========================================
 
 app.use(
@@ -143,7 +198,7 @@ app.use(
 );
 
 // ==========================================
-// SUPPORT TEAM ROUTES
+// SUPPORT TEAMS
 // ==========================================
 
 app.use(
@@ -152,7 +207,7 @@ app.use(
 );
 
 // ==========================================
-// KNOWLEDGE BASE ROUTES
+// KNOWLEDGE BASE
 // ==========================================
 
 app.use(
@@ -161,7 +216,7 @@ app.use(
 );
 
 // ==========================================
-// SERVICE CATALOG ROUTES
+// SERVICE CATALOG
 // ==========================================
 
 app.use(
@@ -170,7 +225,7 @@ app.use(
 );
 
 // ==========================================
-// ANALYTICS ROUTES
+// ANALYTICS
 // ==========================================
 
 app.use(
@@ -179,13 +234,33 @@ app.use(
 );
 
 // ==========================================
-// NOTIFICATION ROUTES
+// NOTIFICATIONS
 // ==========================================
 
 app.use(
   "/api/v1/notifications",
   notificationRoutes
 );
+
+// ==========================================
+// BACKGROUND JOBS
+// ==========================================
+
+app.use(
+  "/api/v1/jobs",
+  jobsRoutes
+);
+
+// ==========================================
+// 404 HANDLER
+// ==========================================
+
+app.use((req, res) => {
+  return res.status(404).json({
+    success: false,
+    message: `Route not found: ${req.method} ${req.originalUrl}`,
+  });
+});
 
 // ==========================================
 // EXPORT

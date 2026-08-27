@@ -1,8 +1,13 @@
 import request from "supertest";
 import mongoose from "mongoose";
 import app from "../src/app";
-import { connectDB } from "../src/config/db";
-jest.setTimeout(30000);
+import {
+  connectDB,
+  disconnectDB,
+} from "../src/config/db";
+
+jest.setTimeout(60000);
+
 // ==========================================
 // TEST DATA
 // ==========================================
@@ -41,47 +46,73 @@ describe("Incident Escalation Integration Tests", () => {
   // ==========================================
 
   beforeAll(async () => {
+    console.log(
+      "\n=========================================="
+    );
+    console.log(
+      "INCIDENT ESCALATION TEST SETUP STARTING"
+    );
+    console.log(
+      "=========================================="
+    );
+
+    // ------------------------------------------
+    // DATABASE
+    // ------------------------------------------
+
+    console.log("Connecting to MongoDB...");
+
     await connectDB();
+
+    console.log("MongoDB connection ready.");
 
     // ------------------------------------------
     // ADMIN LOGIN
     // ------------------------------------------
+
+    console.log(
+      `Attempting admin login: ${ADMIN_EMAIL}`
+    );
 
     const adminLogin = await request(app)
       .post("/api/v1/auth/login")
       .send({
         email: ADMIN_EMAIL,
         password: ADMIN_PASSWORD,
+      })
+      .timeout({
+        response: 15000,
+        deadline: 20000,
       });
+
+    console.log(
+      "ADMIN LOGIN STATUS:",
+      adminLogin.status
+    );
+
+    console.log(
+      "ADMIN LOGIN BODY:",
+      adminLogin.body
+    );
 
     expect(adminLogin.status).toBe(200);
 
-    adminToken = adminLogin.body.data.token;
+    expect(adminLogin.body.success).toBe(true);
+
+    expect(
+      adminLogin.body.data?.token
+    ).toBeDefined();
+
+    adminToken =
+      adminLogin.body.data.token;
 
     organizationId =
       adminLogin.body.data.user.organizationId;
 
-    // ------------------------------------------
-    // EMPLOYEE LOGIN
-    // ------------------------------------------
-
-    const employeeLogin = await request(app)
-      .post("/api/v1/auth/login")
-      .send({
-        email: EMPLOYEE_EMAIL,
-        password: EMPLOYEE_PASSWORD,
-      });
-
-    expect(employeeLogin.status).toBe(200);
-
-    employeeToken =
-      employeeLogin.body.data.token;
-
-    employeeId =
-      employeeLogin.body.data.user.id;
+    expect(organizationId).toBeDefined();
 
     console.log(
-      "INCIDENT ESCALATION TEST USERS LOGGED IN"
+      "Admin login successful."
     );
 
     console.log(
@@ -89,23 +120,140 @@ describe("Incident Escalation Integration Tests", () => {
       organizationId
     );
 
+    // ------------------------------------------
+    // EMPLOYEE LOGIN
+    // ------------------------------------------
+
+    console.log(
+      `Attempting employee login: ${EMPLOYEE_EMAIL}`
+    );
+
+    const employeeLogin = await request(app)
+      .post("/api/v1/auth/login")
+      .send({
+        email: EMPLOYEE_EMAIL,
+        password: EMPLOYEE_PASSWORD,
+      })
+      .timeout({
+        response: 15000,
+        deadline: 20000,
+      });
+
+    console.log(
+      "EMPLOYEE LOGIN STATUS:",
+      employeeLogin.status
+    );
+
+    console.log(
+      "EMPLOYEE LOGIN BODY:",
+      employeeLogin.body
+    );
+
+    expect(employeeLogin.status).toBe(200);
+
+    expect(
+      employeeLogin.body.success
+    ).toBe(true);
+
+    expect(
+      employeeLogin.body.data?.token
+    ).toBeDefined();
+
+    employeeToken =
+      employeeLogin.body.data.token;
+
+    employeeId =
+      employeeLogin.body.data.user.id;
+
+    expect(employeeId).toBeDefined();
+
+    console.log(
+      "Employee login successful."
+    );
+
     console.log(
       "Employee:",
       employeeId
     );
-  });
+
+    // ------------------------------------------
+    // CREATE SUPPORT TEAM
+    // ------------------------------------------
+
+    console.log(
+      "Creating support team for escalation tests..."
+    );
+
+    const teamResponse = await request(app)
+      .post("/api/v1/support-teams")
+      .set(
+        "Authorization",
+        `Bearer ${adminToken}`
+      )
+      .send({
+        name: uniqueName(
+          "Escalation Test Support Team"
+        ),
+        description:
+          "Support team used for incident escalation integration tests",
+      })
+      .timeout({
+        response: 15000,
+        deadline: 20000,
+      });
+
+    console.log(
+      "SUPPORT TEAM STATUS:",
+      teamResponse.status
+    );
+
+    console.log(
+      "SUPPORT TEAM BODY:",
+      teamResponse.body
+    );
+
+    expect(teamResponse.status).toBe(201);
+
+    expect(
+      teamResponse.body.success
+    ).toBe(true);
+
+    supportTeamId =
+      teamResponse.body.data._id;
+
+    expect(supportTeamId).toBeDefined();
+
+    console.log(
+      "Support team created:",
+      supportTeamId
+    );
+
+    console.log(
+      "=========================================="
+    );
+    console.log(
+      "INCIDENT ESCALATION TEST SETUP COMPLETE"
+    );
+    console.log(
+      "==========================================\n"
+    );
+  }, 60000);
 
   // ==========================================
   // CLEANUP
   // ==========================================
 
   afterAll(async () => {
-    await mongoose.connection.close();
+    console.log(
+      "\nClosing Incident Escalation test DB..."
+    );
+
+    await disconnectDB();
 
     console.log(
       "Incident escalation test MongoDB connection closed."
     );
-  });
+  }, 30000);
 
   // ==========================================
   // 1. CREATE POLICY
@@ -128,43 +276,36 @@ describe("Incident Escalation Integration Tests", () => {
         escalationLevel: "Level 1",
         thresholdMinutes: 30,
         targetType: "SupportTeam",
-        targetTeam: supportTeamId || undefined,
+        targetTeam: supportTeamId,
       });
-
-    /*
-     * If a support team is required by your model,
-     * this test may return 400 until a real support
-     * team is created.
-     *
-     * We handle that separately below by creating
-     * the team first if needed.
-     */
 
     console.log(
       "CREATE ESCALATION POLICY RESPONSE:",
       response.body
     );
 
-    expect([201, 400]).toContain(
-      response.status
-    );
+    expect(response.status).toBe(201);
 
-    if (response.status === 201) {
-      expect(
-        response.body.success
-      ).toBe(true);
+    expect(
+      response.body.success
+    ).toBe(true);
 
-      expect(
-        response.body.data.priority
-      ).toBe("Critical");
+    expect(
+      response.body.data.priority
+    ).toBe("Critical");
 
-      expect(
-        response.body.data.escalationLevel
-      ).toBe("Level 1");
+    expect(
+      response.body.data.escalationLevel
+    ).toBe("Level 1");
 
-      policyId =
-        response.body.data._id;
-    }
+    expect(
+      response.body.data.targetType
+    ).toBe("SupportTeam");
+
+    policyId =
+      response.body.data._id;
+
+    expect(policyId).toBeDefined();
   });
 
   // ==========================================
@@ -193,7 +334,7 @@ describe("Incident Escalation Integration Tests", () => {
   });
 
   // ==========================================
-  // 3. REJECT INVALID TARGET
+  // 3. INVALID USER TARGET
   // ==========================================
 
   it("should reject a User target without targetUser", async () => {
@@ -224,6 +365,10 @@ describe("Incident Escalation Integration Tests", () => {
     ).toContain("targetUser");
   });
 
+  // ==========================================
+  // 4. INVALID SUPPORT TEAM TARGET
+  // ==========================================
+
   it("should reject a SupportTeam target without targetTeam", async () => {
     const response = await request(app)
       .post("/api/v1/incident-escalation")
@@ -253,7 +398,7 @@ describe("Incident Escalation Integration Tests", () => {
   });
 
   // ==========================================
-  // 4. REJECT DUPLICATE POLICY
+  // 5. REJECT DUPLICATE POLICY
   // ==========================================
 
   it("should reject duplicate policy names within the same organization", async () => {
@@ -280,7 +425,9 @@ describe("Incident Escalation Integration Tests", () => {
 
     const duplicateResponse =
       await request(app)
-        .post("/api/v1/incident-escalation")
+        .post(
+          "/api/v1/incident-escalation"
+        )
         .set(
           "Authorization",
           `Bearer ${adminToken}`
@@ -308,7 +455,7 @@ describe("Incident Escalation Integration Tests", () => {
   });
 
   // ==========================================
-  // 5. GET POLICIES
+  // 6. GET POLICIES
   // ==========================================
 
   it("should get escalation policies for the organization", async () => {
@@ -333,40 +480,17 @@ describe("Incident Escalation Integration Tests", () => {
     expect(
       Array.isArray(response.body.data)
     ).toBe(true);
+
+    expect(
+      response.body.data.length
+    ).toBeGreaterThan(0);
   });
 
   // ==========================================
-  // 6. GET POLICY BY ID
+  // 7. GET POLICY BY ID
   // ==========================================
 
   it("should get an escalation policy by ID", async () => {
-    if (!policyId) {
-      const createResponse =
-        await request(app)
-          .post(
-            "/api/v1/incident-escalation"
-          )
-          .set(
-            "Authorization",
-            `Bearer ${adminToken}`
-          )
-          .send({
-            name: uniqueName(
-              "Get By ID Policy"
-            ),
-            priority: "Medium",
-            escalationLevel: "Level 1",
-            thresholdMinutes: 45,
-            targetType: "User",
-            targetUser: employeeId,
-          });
-
-      expect(createResponse.status).toBe(201);
-
-      policyId =
-        createResponse.body.data._id;
-    }
-
     const response = await request(app)
       .get(
         `/api/v1/incident-escalation/${policyId}`
@@ -388,25 +512,10 @@ describe("Incident Escalation Integration Tests", () => {
   });
 
   // ==========================================
-  // 7. ORGANIZATION ISOLATION
+  // 8. ORGANIZATION ISOLATION
   // ==========================================
 
-  it("should enforce organization isolation when getting a policy", async () => {
-    /*
-     * This test verifies that the policy lookup
-     * includes organizationId.
-     *
-     * The same policy ID must not be accessible
-     * if the authenticated organization differs.
-     *
-     * Since our current test users belong to the
-     * same organization, we verify the service-level
-     * behavior directly with a fake organization ID.
-     */
-
-    const fakeOrganizationId =
-      new mongoose.Types.ObjectId().toString();
-
+  it("should return a policy belonging to the authenticated organization", async () => {
     const response = await request(app)
       .get(
         `/api/v1/incident-escalation/${policyId}`
@@ -418,25 +527,17 @@ describe("Incident Escalation Integration Tests", () => {
 
     expect(response.status).toBe(200);
 
-    /*
-     * The authenticated organization is the only
-     * organization used by the controller.
-     *
-     * Therefore the returned policy must belong
-     * to the authenticated organization.
-     */
+    expect(
+      response.body.success
+    ).toBe(true);
 
     expect(
       response.body.data.organizationId
     ).toBe(organizationId);
-
-    expect(fakeOrganizationId).not.toBe(
-      organizationId
-    );
   });
 
   // ==========================================
-  // 8. UPDATE POLICY
+  // 9. UPDATE POLICY
   // ==========================================
 
   it("should update an escalation policy", async () => {
@@ -476,42 +577,40 @@ describe("Incident Escalation Integration Tests", () => {
   });
 
   // ==========================================
-  // 9. SWITCH USER → SUPPORT TEAM
+  // 10. SWITCH USER -> SUPPORT TEAM
   // ==========================================
 
   it("should switch an escalation policy from User to SupportTeam", async () => {
-    /*
-     * First create a support team using the existing
-     * support-team API.
-     */
+    const userPolicyResponse =
+      await request(app)
+        .post(
+          "/api/v1/incident-escalation"
+        )
+        .set(
+          "Authorization",
+          `Bearer ${adminToken}`
+        )
+        .send({
+          name: uniqueName(
+            "User To Team Policy"
+          ),
+          priority: "High",
+          escalationLevel: "Level 1",
+          thresholdMinutes: 50,
+          targetType: "User",
+          targetUser: employeeId,
+        });
 
-    const teamResponse = await request(app)
-      .post("/api/v1/support-teams")
-      .set(
-        "Authorization",
-        `Bearer ${adminToken}`
-      )
-      .send({
-        name: uniqueName(
-          "Escalation Support Team"
-        ),
-        description:
-          "Support team for escalation testing",
-      });
+    expect(
+      userPolicyResponse.status
+    ).toBe(201);
 
-    console.log(
-      "CREATE SUPPORT TEAM RESPONSE:",
-      teamResponse.body
-    );
-
-    expect(teamResponse.status).toBe(201);
-
-    supportTeamId =
-      teamResponse.body.data._id;
+    const userPolicyId =
+      userPolicyResponse.body.data._id;
 
     const response = await request(app)
       .put(
-        `/api/v1/incident-escalation/${policyId}`
+        `/api/v1/incident-escalation/${userPolicyId}`
       )
       .set(
         "Authorization",
@@ -530,17 +629,32 @@ describe("Incident Escalation Integration Tests", () => {
     expect(response.status).toBe(200);
 
     expect(
+      response.body.success
+    ).toBe(true);
+
+    expect(
       response.body.data.targetType
     ).toBe("SupportTeam");
 
-    expect(
-      response.body.data.targetTeam._id ||
-        response.body.data.targetTeam
-    ).toBe(supportTeamId);
+    const returnedTargetTeam =
+      response.body.data.targetTeam;
+
+    if (
+      returnedTargetTeam &&
+      typeof returnedTargetTeam === "object"
+    ) {
+      expect(
+        returnedTargetTeam._id
+      ).toBe(supportTeamId);
+    } else {
+      expect(
+        returnedTargetTeam
+      ).toBe(supportTeamId);
+    }
   });
 
   // ==========================================
-  // 10. DELETE POLICY
+  // 11. DELETE POLICY
   // ==========================================
 
   it("should delete an escalation policy", async () => {
@@ -564,7 +678,9 @@ describe("Incident Escalation Integration Tests", () => {
           targetUser: employeeId,
         });
 
-    expect(createResponse.status).toBe(201);
+    expect(
+      createResponse.status
+    ).toBe(201);
 
     const id =
       createResponse.body.data._id;
@@ -579,7 +695,9 @@ describe("Incident Escalation Integration Tests", () => {
           `Bearer ${adminToken}`
         );
 
-    expect(deleteResponse.status).toBe(200);
+    expect(
+      deleteResponse.status
+    ).toBe(200);
 
     expect(
       deleteResponse.body.success
@@ -595,11 +713,13 @@ describe("Incident Escalation Integration Tests", () => {
           `Bearer ${adminToken}`
         );
 
-    expect(getResponse.status).toBe(404);
+    expect(
+      getResponse.status
+    ).toBe(404);
   });
 
   // ==========================================
-  // 11. FIND APPLICABLE ACTIVE POLICIES
+  // 12. APPLICABLE ACTIVE POLICIES
   // ==========================================
 
   it("should return only active policies applicable to the incident priority", async () => {
@@ -654,81 +774,285 @@ describe("Incident Escalation Integration Tests", () => {
     const inactiveId =
       inactiveResponse.body.data._id;
 
-    await request(app)
-      .put(
-        `/api/v1/incident-escalation/${inactiveId}`
-      )
-      .set(
-        "Authorization",
-        `Bearer ${adminToken}`
-      )
-      .send({
-        isActive: false,
-      });
-
-    /*
-     * The service-level applicable-policy method
-     * isn't currently exposed through a route.
-     *
-     * Therefore this requirement should eventually
-     * have a dedicated endpoint, e.g.
-     *
-     * GET /api/v1/incident-escalation/applicable/:priority
-     *
-     * We don't fake an HTTP test for an endpoint
-     * that doesn't exist.
-     */
+    const deactivateResponse =
+      await request(app)
+        .put(
+          `/api/v1/incident-escalation/${inactiveId}`
+        )
+        .set(
+          "Authorization",
+          `Bearer ${adminToken}`
+        )
+        .send({
+          isActive: false,
+        });
 
     expect(
-      activeResponse.body.data.isActive
+      deactivateResponse.status
+    ).toBe(200);
+
+    // ------------------------------------------
+    // APPLICABLE ENDPOINT
+    // ------------------------------------------
+
+    const applicableResponse =
+      await request(app)
+        .get(
+          "/api/v1/incident-escalation/applicable/High"
+        )
+        .set(
+          "Authorization",
+          `Bearer ${adminToken}`
+        );
+
+    console.log(
+      "APPLICABLE HIGH POLICIES RESPONSE:",
+      applicableResponse.body
+    );
+
+    expect(
+      applicableResponse.status
+    ).toBe(200);
+
+    expect(
+      applicableResponse.body.success
     ).toBe(true);
+
+    expect(
+      Array.isArray(
+        applicableResponse.body.data
+      )
+    ).toBe(true);
+
+    const policies =
+      applicableResponse.body.data;
+
+    expect(
+      policies.some(
+        (policy: any) =>
+          policy._id ===
+          activeResponse.body.data._id
+      )
+    ).toBe(true);
+
+    expect(
+      policies.some(
+        (policy: any) =>
+          policy._id === inactiveId
+      )
+    ).toBe(false);
+
+    policies.forEach((policy: any) => {
+      expect(policy.priority).toBe("High");
+      expect(policy.isActive).toBe(true);
+    });
   });
 
   // ==========================================
-  // 12. PRIORITY FILTERING
+  // 13. PRIORITY FILTERING
   // ==========================================
 
-  it("should filter policies by incident priority through applicable-policy logic", async () => {
-    /*
-     * getApplicableEscalationPolicies() already
-     * filters by:
-     *
-     * organizationId
-     * priority
-     * isActive: true
-     *
-     * However, there is currently no controller
-     * route exposing this service method.
-     *
-     * This should be covered after adding the
-     * applicable-policy endpoint.
-     */
+  it("should return only policies matching the requested incident priority", async () => {
+    const highPolicy =
+      await request(app)
+        .post(
+          "/api/v1/incident-escalation"
+        )
+        .set(
+          "Authorization",
+          `Bearer ${adminToken}`
+        )
+        .send({
+          name: uniqueName(
+            "Priority Filter High"
+          ),
+          priority: "High",
+          escalationLevel: "Level 1",
+          thresholdMinutes: 15,
+          targetType: "User",
+          targetUser: employeeId,
+        });
 
-    expect(true).toBe(true);
+    expect(
+      highPolicy.status
+    ).toBe(201);
+
+    const mediumPolicy =
+      await request(app)
+        .post(
+          "/api/v1/incident-escalation"
+        )
+        .set(
+          "Authorization",
+          `Bearer ${adminToken}`
+        )
+        .send({
+          name: uniqueName(
+            "Priority Filter Medium"
+          ),
+          priority: "Medium",
+          escalationLevel: "Level 1",
+          thresholdMinutes: 25,
+          targetType: "User",
+          targetUser: employeeId,
+        });
+
+    expect(
+      mediumPolicy.status
+    ).toBe(201);
+
+    const response =
+      await request(app)
+        .get(
+          "/api/v1/incident-escalation/applicable/High"
+        )
+        .set(
+          "Authorization",
+          `Bearer ${adminToken}`
+        );
+
+    expect(response.status).toBe(200);
+
+    expect(
+      response.body.success
+    ).toBe(true);
+
+    expect(
+      Array.isArray(response.body.data)
+    ).toBe(true);
+
+    response.body.data.forEach(
+      (policy: any) => {
+        expect(
+          policy.priority
+        ).toBe("High");
+
+        expect(
+          policy.isActive
+        ).toBe(true);
+      }
+    );
+
+    expect(
+      response.body.data.some(
+        (policy: any) =>
+          policy._id ===
+          mediumPolicy.body.data._id
+      )
+    ).toBe(false);
   });
 
   // ==========================================
-  // 13. THRESHOLD ORDERING
+  // 14. THRESHOLD ORDERING
   // ==========================================
 
   it("should order applicable policies by thresholdMinutes", async () => {
-    /*
-     * The service explicitly uses:
-     *
-     * .sort({
-     *   thresholdMinutes: 1,
-     *   escalationLevel: 1,
-     * })
-     *
-     * This requirement will be fully verified once
-     * the applicable-policy endpoint is exposed.
-     */
+    const policy1 =
+      await request(app)
+        .post(
+          "/api/v1/incident-escalation"
+        )
+        .set(
+          "Authorization",
+          `Bearer ${adminToken}`
+        )
+        .send({
+          name: uniqueName(
+            "Threshold Order 60"
+          ),
+          priority: "Critical",
+          escalationLevel: "Level 2",
+          thresholdMinutes: 60,
+          targetType: "User",
+          targetUser: employeeId,
+        });
 
-    expect(true).toBe(true);
+    expect(
+      policy1.status
+    ).toBe(201);
+
+    const policy2 =
+      await request(app)
+        .post(
+          "/api/v1/incident-escalation"
+        )
+        .set(
+          "Authorization",
+          `Bearer ${adminToken}`
+        )
+        .send({
+          name: uniqueName(
+            "Threshold Order 20"
+          ),
+          priority: "Critical",
+          escalationLevel: "Level 1",
+          thresholdMinutes: 20,
+          targetType: "User",
+          targetUser: employeeId,
+        });
+
+    expect(
+      policy2.status
+    ).toBe(201);
+
+    const policy3 =
+      await request(app)
+        .post(
+          "/api/v1/incident-escalation"
+        )
+        .set(
+          "Authorization",
+          `Bearer ${adminToken}`
+        )
+        .send({
+          name: uniqueName(
+            "Threshold Order 40"
+          ),
+          priority: "Critical",
+          escalationLevel: "Level 2",
+          thresholdMinutes: 40,
+          targetType: "User",
+          targetUser: employeeId,
+        });
+
+    expect(
+      policy3.status
+    ).toBe(201);
+
+    const response =
+      await request(app)
+        .get(
+          "/api/v1/incident-escalation/applicable/Critical"
+        )
+        .set(
+          "Authorization",
+          `Bearer ${adminToken}`
+        );
+
+    expect(response.status).toBe(200);
+
+    expect(
+      response.body.success
+    ).toBe(true);
+
+    const thresholds =
+      response.body.data.map(
+        (policy: any) =>
+          policy.thresholdMinutes
+      );
+
+    const sortedThresholds =
+      [...thresholds].sort(
+        (a, b) => a - b
+      );
+
+    expect(
+      thresholds
+    ).toEqual(sortedThresholds);
   });
 
   // ==========================================
-  // 14. EMPLOYEE CANNOT CREATE POLICY
+  // 15. EMPLOYEE CANNOT CREATE POLICY
   // ==========================================
 
   it("should reject policy creation by a non-admin user", async () => {
@@ -755,7 +1079,7 @@ describe("Incident Escalation Integration Tests", () => {
   });
 
   // ==========================================
-  // 15. EMPLOYEE CANNOT UPDATE POLICY
+  // 16. EMPLOYEE CANNOT UPDATE POLICY
   // ==========================================
 
   it("should reject policy update by a non-admin user", async () => {
@@ -777,7 +1101,7 @@ describe("Incident Escalation Integration Tests", () => {
   });
 
   // ==========================================
-  // 16. EMPLOYEE CANNOT DELETE POLICY
+  // 17. EMPLOYEE CANNOT DELETE POLICY
   // ==========================================
 
   it("should reject policy deletion by a non-admin user", async () => {

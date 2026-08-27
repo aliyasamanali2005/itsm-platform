@@ -184,7 +184,7 @@ app.use(
 // ==========================================
 
 app.use(
-  "/api/v1/rca",
+  "/api/v1/rcas",
   rcaRoutes
 );
 

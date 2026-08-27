@@ -1,5 +1,7 @@
 import bcrypt from "bcrypt";
-import AuthUser from "./auth.model";
+import mongoose from "mongoose";
+
+import { authRepository } from "./auth.repository";
 
 // ==========================================
 // TYPES
@@ -27,9 +29,38 @@ interface UpdateUserData {
 export const createUser = async (
   data: CreateUserData
 ) => {
-  const existingUser = await AuthUser.findOne({
-    email: data.email.toLowerCase(),
-  });
+  // ------------------------------------------
+  // VALIDATE ORGANIZATION ID
+  // ------------------------------------------
+
+  if (
+    !mongoose.Types.ObjectId.isValid(
+      data.organizationId
+    )
+  ) {
+    throw new Error(
+      "Invalid organization ID"
+    );
+  }
+
+  const organizationObjectId =
+    new mongoose.Types.ObjectId(
+      data.organizationId
+    );
+
+  // ------------------------------------------
+  // NORMALIZE EMAIL
+  // ------------------------------------------
+
+  const email =
+    data.email.toLowerCase().trim();
+
+  // ------------------------------------------
+  // CHECK DUPLICATE EMAIL
+  // ------------------------------------------
+
+  const existingUser =
+    await authRepository.findByEmail(email);
 
   if (existingUser) {
     throw new Error(
@@ -37,20 +68,28 @@ export const createUser = async (
     );
   }
 
-  const hashedPassword = await bcrypt.hash(
-    data.password,
-    10
-  );
+  // ------------------------------------------
+  // HASH PASSWORD
+  // ------------------------------------------
 
-  const user = await AuthUser.create({
+  const hashedPassword =
+    await bcrypt.hash(
+      data.password,
+      10
+    );
+
+  // ------------------------------------------
+  // CREATE USER
+  // ------------------------------------------
+
+  return authRepository.create({
     name: data.name,
-    email: data.email.toLowerCase(),
+    email,
     password: hashedPassword,
     role: data.role || "employee",
-    organizationId: data.organizationId,
+    organizationId:
+      organizationObjectId,
   });
-
-  return user;
 };
 
 // ==========================================
@@ -60,11 +99,19 @@ export const createUser = async (
 export const getUsersByOrganization = async (
   organizationId: string
 ) => {
-  return AuthUser.find({
-    organizationId,
-  })
-    .select("-password")
-    .sort({ createdAt: -1 });
+  if (
+    !mongoose.Types.ObjectId.isValid(
+      organizationId
+    )
+  ) {
+    throw new Error(
+      "Invalid organization ID"
+    );
+  }
+
+  return authRepository.findAllByOrganization(
+    organizationId
+  );
 };
 
 // ==========================================
@@ -75,10 +122,26 @@ export const getUserById = async (
   id: string,
   organizationId: string
 ) => {
-  return AuthUser.findOne({
-    _id: id,
-    organizationId,
-  }).select("-password");
+  if (
+    !mongoose.Types.ObjectId.isValid(id)
+  ) {
+    return null;
+  }
+
+  if (
+    !mongoose.Types.ObjectId.isValid(
+      organizationId
+    )
+  ) {
+    throw new Error(
+      "Invalid organization ID"
+    );
+  }
+
+  return authRepository.findUserByIdAndOrganization(
+    id,
+    organizationId
+  );
 };
 
 // ==========================================
@@ -90,13 +153,49 @@ export const updateUser = async (
   organizationId: string,
   data: UpdateUserData
 ) => {
-  if (data.email) {
-    data.email = data.email.toLowerCase();
+  // ------------------------------------------
+  // VALIDATE IDS
+  // ------------------------------------------
 
-    const existingUser = await AuthUser.findOne({
-      email: data.email,
-      _id: { $ne: id },
-    });
+  if (
+    !mongoose.Types.ObjectId.isValid(id)
+  ) {
+    return null;
+  }
+
+  if (
+    !mongoose.Types.ObjectId.isValid(
+      organizationId
+    )
+  ) {
+    throw new Error(
+      "Invalid organization ID"
+    );
+  }
+
+  // ------------------------------------------
+  // PREPARE UPDATE DATA
+  // ------------------------------------------
+
+  const updateData: UpdateUserData = {
+    ...data,
+  };
+
+  // ------------------------------------------
+  // NORMALIZE + CHECK EMAIL
+  // ------------------------------------------
+
+  if (updateData.email) {
+    updateData.email =
+      updateData.email
+        .toLowerCase()
+        .trim();
+
+    const existingUser =
+      await authRepository.findByEmailExcludingId(
+        updateData.email,
+        id
+      );
 
     if (existingUser) {
       throw new Error(
@@ -105,17 +204,15 @@ export const updateUser = async (
     }
   }
 
-  return AuthUser.findOneAndUpdate(
-    {
-      _id: id,
-      organizationId,
-    },
-    data,
-    {
-      new: true,
-      runValidators: true,
-    }
-  ).select("-password");
+  // ------------------------------------------
+  // UPDATE USER
+  // ------------------------------------------
+
+  return authRepository.updateByIdAndOrganization(
+    id,
+    organizationId,
+    updateData
+  );
 };
 
 // ==========================================
@@ -126,16 +223,24 @@ export const deactivateUser = async (
   id: string,
   organizationId: string
 ) => {
-  return AuthUser.findOneAndUpdate(
-    {
-      _id: id,
-      organizationId,
-    },
-    {
-      isActive: false,
-    },
-    {
-      new: true,
-    }
-  ).select("-password");
+  if (
+    !mongoose.Types.ObjectId.isValid(id)
+  ) {
+    return null;
+  }
+
+  if (
+    !mongoose.Types.ObjectId.isValid(
+      organizationId
+    )
+  ) {
+    throw new Error(
+      "Invalid organization ID"
+    );
+  }
+
+  return authRepository.deactivateByIdAndOrganization(
+    id,
+    organizationId
+  );
 };

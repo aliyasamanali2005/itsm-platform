@@ -1,9 +1,10 @@
-import SLA, {
+import {
   SLAPriority,
   SLABusinessHours,
 } from "./sla.model";
 
-import Incident from "../incident/incident.model";
+import { slaRepository } from "./sla.repository";
+import { incidentRepository } from "../incident/incident.repository";
 
 // ==========================================
 // SLA RULES
@@ -40,20 +41,6 @@ const SLA_RULES: Record<
 // ==========================================
 // DEFAULT BUSINESS HOURS
 // ==========================================
-//
-// Monday-Friday
-// 09:00 - 17:00
-// Asia/Karachi
-//
-// JavaScript day:
-// 0 = Sunday
-// 1 = Monday
-// 2 = Tuesday
-// 3 = Wednesday
-// 4 = Thursday
-// 5 = Friday
-// 6 = Saturday
-// ==========================================
 
 const DEFAULT_BUSINESS_HOURS: SLABusinessHours = {
   timezone: "Asia/Karachi",
@@ -77,9 +64,7 @@ const isBusinessDay = (
 ): boolean => {
   const day = date.getDay();
 
-  return businessHours.workingDays.includes(
-    day
-  );
+  return businessHours.workingDays.includes(day);
 };
 
 // ==========================================
@@ -158,13 +143,6 @@ const moveToNextBusinessDay = (
 // ==========================================
 // NORMALIZE TO BUSINESS TIME
 // ==========================================
-//
-// If timestamp is:
-// - before business hours -> move to start
-// - after business hours -> next business day
-// - weekend -> next business day
-// - inside business hours -> unchanged
-// ==========================================
 
 const normalizeToBusinessTime = (
   date: Date,
@@ -184,15 +162,17 @@ const normalizeToBusinessTime = (
     );
   }
 
-  const start = getBusinessStart(
-    result,
-    businessHours
-  );
+  const start =
+    getBusinessStart(
+      result,
+      businessHours
+    );
 
-  const end = getBusinessEnd(
-    result,
-    businessHours
-  );
+  const end =
+    getBusinessEnd(
+      result,
+      businessHours
+    );
 
   if (result < start) {
     return start;
@@ -210,10 +190,6 @@ const normalizeToBusinessTime = (
 
 // ==========================================
 // ADD BUSINESS MINUTES
-// ==========================================
-//
-// Adds only working/business minutes.
-// Weekends and non-working hours are skipped.
 // ==========================================
 
 const addBusinessMinutes = (
@@ -282,11 +258,15 @@ export const createSLAForIncident =
     incidentId: string,
     organizationId: string
   ) => {
+    // ========================================
+    // FIND INCIDENT THROUGH REPOSITORY
+    // ========================================
+
     const incident =
-      await Incident.findOne({
-        _id: incidentId,
-        organizationId,
-      });
+      await incidentRepository.findByIdAndOrganization(
+        incidentId,
+        organizationId
+      );
 
     if (!incident) {
       throw new Error(
@@ -299,10 +279,10 @@ export const createSLAForIncident =
     // ========================================
 
     const existingSLA =
-      await SLA.findOne({
+      await slaRepository.findByIncidentAndOrganization(
         incidentId,
-        organizationId,
-      });
+        organizationId
+      );
 
     if (existingSLA) {
       throw new Error(
@@ -332,6 +312,7 @@ export const createSLAForIncident =
 
     const businessHours: SLABusinessHours = {
       ...DEFAULT_BUSINESS_HOURS,
+
       workingDays: [
         ...DEFAULT_BUSINESS_HOURS.workingDays,
       ],
@@ -344,7 +325,7 @@ export const createSLAForIncident =
     const now = new Date();
 
     // ========================================
-    // CALCULATE BUSINESS DEADLINES
+    // CALCULATE DEADLINES
     // ========================================
 
     const responseDueAt =
@@ -362,10 +343,10 @@ export const createSLAForIncident =
       );
 
     // ========================================
-    // CREATE SLA
+    // CREATE SLA THROUGH REPOSITORY
     // ========================================
 
-    return SLA.create({
+    return slaRepository.create({
       incidentId: incident._id,
 
       organizationId:
@@ -402,12 +383,9 @@ export const getSLAByIncident =
     incidentId: string,
     organizationId: string
   ) => {
-    return SLA.findOne({
+    return slaRepository.findByIncidentWithIncident(
       incidentId,
-      organizationId,
-    }).populate(
-      "incidentId",
-      "incidentId title priority severity status"
+      organizationId
     );
   };
 
@@ -419,16 +397,9 @@ export const getSLAsByOrganization =
   async (
     organizationId: string
   ) => {
-    return SLA.find({
-      organizationId,
-    })
-      .populate(
-        "incidentId",
-        "incidentId title priority severity status"
-      )
-      .sort({
-        createdAt: -1,
-      });
+    return slaRepository.findAllByOrganization(
+      organizationId
+    );
   };
 
 // ==========================================
@@ -440,11 +411,15 @@ export const checkSLABreach =
     slaId: string,
     organizationId: string
   ) => {
+    // ========================================
+    // FIND SLA THROUGH REPOSITORY
+    // ========================================
+
     const sla =
-      await SLA.findOne({
-        _id: slaId,
-        organizationId,
-      });
+      await slaRepository.findByIdAndOrganization(
+        slaId,
+        organizationId
+      );
 
     if (!sla) {
       throw new Error(
@@ -452,11 +427,15 @@ export const checkSLABreach =
       );
     }
 
+    // ========================================
+    // FIND INCIDENT THROUGH REPOSITORY
+    // ========================================
+
     const incident =
-      await Incident.findOne({
-        _id: sla.incidentId,
-        organizationId,
-      });
+      await incidentRepository.findByIdAndOrganization(
+        sla.incidentId.toString(),
+        organizationId
+      );
 
     if (!incident) {
       throw new Error(
@@ -510,10 +489,8 @@ export const checkSLABreach =
       status =
         "Response Breached";
     } else if (
-      incident.status ===
-        "Resolved" ||
-      incident.status ===
-        "Closed"
+      incident.status === "Resolved" ||
+      incident.status === "Closed"
     ) {
       status =
         "Completed";
@@ -522,25 +499,16 @@ export const checkSLABreach =
     }
 
     // ========================================
-    // UPDATE
+    // UPDATE SLA THROUGH REPOSITORY
     // ========================================
 
-    return SLA.findOneAndUpdate(
-      {
-        _id: slaId,
-        organizationId,
-      },
+    return slaRepository.updateByIdAndOrganization(
+      slaId,
+      organizationId,
       {
         responseBreached,
-
         resolutionBreached,
-
         status,
-      },
-      {
-        new: true,
-
-        runValidators: true,
       }
     );
   };
@@ -555,10 +523,10 @@ export const recordSLAResponse =
     organizationId: string
   ) => {
     const sla =
-      await SLA.findOne({
-        _id: slaId,
-        organizationId,
-      });
+      await slaRepository.findByIdAndOrganization(
+        slaId,
+        organizationId
+      );
 
     if (!sla) {
       throw new Error(
@@ -578,7 +546,7 @@ export const recordSLAResponse =
       new Date();
 
     // ========================================
-    // DETERMINE IF RESPONSE WAS LATE
+    // DETERMINE BREACH
     // ========================================
 
     const responseBreached =
@@ -588,33 +556,22 @@ export const recordSLAResponse =
     let status =
       sla.status;
 
-    if (
-      responseBreached
-    ) {
+    if (responseBreached) {
       status =
         "Response Breached";
     }
 
     // ========================================
-    // UPDATE
+    // UPDATE SLA THROUGH REPOSITORY
     // ========================================
 
-    return SLA.findOneAndUpdate(
-      {
-        _id: slaId,
-        organizationId,
-      },
+    return slaRepository.updateByIdAndOrganization(
+      slaId,
+      organizationId,
       {
         respondedAt,
-
         responseBreached,
-
         status,
-      },
-      {
-        new: true,
-
-        runValidators: true,
       }
     );
   };
@@ -629,10 +586,10 @@ export const recordSLAResolution =
     organizationId: string
   ) => {
     const sla =
-      await SLA.findOne({
-        _id: slaId,
-        organizationId,
-      });
+      await slaRepository.findByIdAndOrganization(
+        slaId,
+        organizationId
+      );
 
     if (!sla) {
       throw new Error(
@@ -652,45 +609,34 @@ export const recordSLAResolution =
       new Date();
 
     // ========================================
-    // DETERMINE IF RESOLUTION WAS LATE
+    // DETERMINE BREACH
     // ========================================
 
     const resolutionBreached =
       resolvedAt >
       sla.resolutionDueAt;
 
-    let status =
-      "Completed" as
-        | "Completed"
-        | "Resolution Breached";
+    let status:
+      | "Completed"
+      | "Resolution Breached" =
+      "Completed";
 
-    if (
-      resolutionBreached
-    ) {
+    if (resolutionBreached) {
       status =
         "Resolution Breached";
     }
 
     // ========================================
-    // UPDATE
+    // UPDATE SLA THROUGH REPOSITORY
     // ========================================
 
-    return SLA.findOneAndUpdate(
-      {
-        _id: slaId,
-        organizationId,
-      },
+    return slaRepository.updateByIdAndOrganization(
+      slaId,
+      organizationId,
       {
         resolvedAt,
-
         resolutionBreached,
-
         status,
-      },
-      {
-        new: true,
-
-        runValidators: true,
       }
     );
   };

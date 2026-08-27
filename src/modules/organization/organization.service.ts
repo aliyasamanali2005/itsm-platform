@@ -1,6 +1,10 @@
-import Organization, {
+import {
   IOrganization,
 } from "./organization.model";
+
+import {
+  organizationRepository,
+} from "./organization.repository";
 
 interface CreateOrganizationData {
   name: string;
@@ -11,12 +15,13 @@ interface CreateOrganizationData {
 export const createOrganization = async (
   data: CreateOrganizationData
 ): Promise<IOrganization> => {
-  const existingOrganization = await Organization.findOne({
-    $or: [
-      { name: data.name },
-      { slug: data.slug },
-    ],
-  });
+  const existingOrganization =
+    await organizationRepository.findOne({
+      $or: [
+        { name: data.name },
+        { slug: data.slug },
+      ],
+    });
 
   if (existingOrganization) {
     throw new Error(
@@ -24,43 +29,32 @@ export const createOrganization = async (
     );
   }
 
-  const organization = await Organization.create({
+  return organizationRepository.create({
     name: data.name,
     slug: data.slug,
     description: data.description,
   });
-
-  return organization;
 };
 
 export const getOrganizations = async (): Promise<IOrganization[]> => {
-  return Organization.find().sort({ createdAt: -1 });
+  return organizationRepository.findAll();
 };
 
 export const getOrganizationById = async (
   id: string
 ): Promise<IOrganization | null> => {
-  return Organization.findById(id);
+  return organizationRepository.findById(id);
 };
 
 export const updateOrganization = async (
   id: string,
   data: Partial<CreateOrganizationData>
 ): Promise<IOrganization | null> => {
-  const organization = await Organization.findByIdAndUpdate(
-    id,
-    data,
-    {
-      new: true,
-      runValidators: true,
-    }
-  );
-
-  return organization;
+  return organizationRepository.updateById(id, data);
 };
 
 export const deleteOrganization = async (
   id: string
 ): Promise<IOrganization | null> => {
-  return Organization.findByIdAndDelete(id);
+  return organizationRepository.deleteById(id);
 };

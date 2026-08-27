@@ -33,6 +33,8 @@ export interface IRCA
 
   preventiveActions: string[];
 
+  lessonsLearned: string[];
+
   identifiedBy: mongoose.Types.ObjectId;
 
   relatedIncidents: mongoose.Types.ObjectId[];
@@ -116,6 +118,15 @@ const rcaSchema =
       // ==========================================
 
       preventiveActions: {
+        type: [String],
+        default: [],
+      },
+
+      // ==========================================
+      // LESSONS LEARNED
+      // ==========================================
+
+      lessonsLearned: {
         type: [String],
         default: [],
       },

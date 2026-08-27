@@ -1,3 +1,13 @@
+import { connectDB, disconnectDB } from "../src/config/db";
+
+beforeAll(async () => {
+  await connectDB();
+}, 30000);
+
 afterAll(async () => {
-  console.log("\nJest test environment cleanup complete.");
-});
+  await disconnectDB();
+
+  console.log(
+    "\nJest test environment cleanup complete."
+  );
+}, 30000);

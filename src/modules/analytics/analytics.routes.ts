@@ -1,21 +1,48 @@
 import { Router } from "express";
 
 import {
-  getAnalyticsOverviewController,
+  getTechnicianPerformanceController,
+  getAssetHealthController,
+  getChangeSuccessRateController,
 } from "./analytics.controller";
 
-import { authenticate } from "../../middleware/auth.middleware";
+import {
+  authenticate,
+} from "../../middleware/auth.middleware";
 
 const router = Router();
 
 // ==========================================
-// ANALYTICS OVERVIEW
+// TECHNICIAN PERFORMANCE
+// ADMIN + EMPLOYEE
 // ==========================================
 
 router.get(
-  "/overview",
+  "/technician-performance",
   authenticate,
-  getAnalyticsOverviewController
+  getTechnicianPerformanceController
+);
+
+// ==========================================
+// ASSET HEALTH
+// ADMIN + EMPLOYEE
+// ==========================================
+
+router.get(
+  "/asset-health",
+  authenticate,
+  getAssetHealthController
+);
+
+// ==========================================
+// CHANGE SUCCESS RATE
+// ADMIN + EMPLOYEE
+// ==========================================
+
+router.get(
+  "/change-success-rate",
+  authenticate,
+  getChangeSuccessRateController
 );
 
 export default router;

@@ -1,8 +1,10 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 
-import AuthUser, { IAuthUser } from "./auth.model";
-import Organization from "../organization/organization.model";
+import { IAuthUser } from "./auth.model";
+import { authRepository } from "./auth.repository";
+import { organizationRepository } from "../organization/organization.repository";
 
 interface RegisterUserData {
   name: string;
@@ -35,7 +37,7 @@ interface AuthResponse {
 export const registerUser = async (
   data: RegisterUserData
 ): Promise<AuthResponse> => {
-  const existingUser = await AuthUser.findOne({
+  const existingUser = await authRepository.findOne({
     email: data.email.toLowerCase(),
   });
 
@@ -43,7 +45,7 @@ export const registerUser = async (
     throw new Error("A user with this email already exists");
   }
 
-  const organization = await Organization.findById(
+  const organization = await organizationRepository.findById(
     data.organizationId
   );
 
@@ -55,14 +57,19 @@ export const registerUser = async (
     throw new Error("Organization is inactive");
   }
 
-  const hashedPassword = await bcrypt.hash(data.password, 10);
+  const hashedPassword = await bcrypt.hash(
+    data.password,
+    10
+  );
 
-  const user = await AuthUser.create({
+  const user = await authRepository.create({
     name: data.name,
     email: data.email.toLowerCase(),
     password: hashedPassword,
     role: data.role || "employee",
-    organizationId: data.organizationId,
+    organizationId: new mongoose.Types.ObjectId(
+      data.organizationId
+    ),
   });
 
   const token = generateToken(user);
@@ -86,7 +93,7 @@ export const registerUser = async (
 export const loginUser = async (
   data: LoginUserData
 ): Promise<AuthResponse> => {
-  const user = await AuthUser.findOne({
+  const user = await authRepository.findOne({
     email: data.email.toLowerCase(),
   });
 
@@ -98,9 +105,10 @@ export const loginUser = async (
     throw new Error("User account is inactive");
   }
 
-  const organization = await Organization.findById(
-    user.organizationId
-  );
+  const organization =
+    await organizationRepository.findById(
+      user.organizationId.toString()
+    );
 
   if (!organization) {
     throw new Error("Organization not found");
@@ -137,11 +145,15 @@ export const loginUser = async (
 // GENERATE JWT
 // ==========================================
 
-const generateToken = (user: IAuthUser): string => {
+const generateToken = (
+  user: IAuthUser
+): string => {
   const secret = process.env.JWT_SECRET;
 
   if (!secret) {
-    throw new Error("JWT_SECRET is not configured");
+    throw new Error(
+      "JWT_SECRET is not configured"
+    );
   }
 
   return jwt.sign(
@@ -149,7 +161,8 @@ const generateToken = (user: IAuthUser): string => {
       id: user._id.toString(),
       email: user.email,
       role: user.role,
-      organizationId: user.organizationId.toString(),
+      organizationId:
+        user.organizationId.toString(),
     },
     secret,
     {

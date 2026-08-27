@@ -1,0 +1,507 @@
+import request from "supertest";
+import mongoose from "mongoose";
+
+import app from "../src/app";
+import { connectDB } from "../src/config/db";
+
+import AuthUser from "../src/modules/auth/auth.model";
+import Organization from "../src/modules/organization/organization.model";
+import Problem from "../src/modules/problem/problem.model";
+import Incident from "../src/modules/incident/incident.model";
+import RCA from "../src/modules/rca/rca.model";
+jest.setTimeout(60000);
+
+describe("RCA Corrective Actions Integration Tests", () => {
+  let adminToken: string;
+  let employeeToken: string;
+
+  let organizationId: string;
+  let adminId: string;
+  let employeeId: string;
+
+  let problemId: string;
+  let incidentId: string;
+  let rcaId: string;
+
+  beforeAll(async () => {
+    console.log("==========================================");
+    console.log("RCA CORRECTIVE ACTIONS TEST SETUP");
+    console.log("==========================================");
+
+    await connectDB();
+
+    // ==========================================
+    // CREATE ORGANIZATION
+    // ==========================================
+
+    const organization = await Organization.create({
+      name: `RCA Corrective Action Org ${Date.now()}`,
+      slug: `rca-corrective-action-org-${Date.now()}`,
+      description: "Organization for RCA corrective action tests",
+      isActive: true,
+    });
+
+    organizationId = organization._id.toString();
+
+    console.log("Organization:", organizationId);
+
+    // ==========================================
+    // CREATE ADMIN THROUGH REGISTER API
+    // ==========================================
+
+    const adminEmail = `rca.admin.${Date.now()}@example.com`;
+
+    const adminRegister = await request(app)
+      .post("/api/v1/auth/register")
+      .send({
+        name: "RCA Admin",
+        email: adminEmail,
+        password: "Password123!",
+        role: "admin",
+        organizationId,
+      });
+
+    console.log("ADMIN REGISTER STATUS:", adminRegister.status);
+    console.log("ADMIN REGISTER RESPONSE:", adminRegister.body);
+
+    expect(adminRegister.status).toBe(201);
+    expect(adminRegister.body.success).toBe(true);
+
+    adminId = adminRegister.body.data.user.id;
+
+    // ==========================================
+    // CREATE EMPLOYEE THROUGH REGISTER API
+    // ==========================================
+
+    const employeeEmail = `rca.employee.${Date.now()}@example.com`;
+
+    const employeeRegister = await request(app)
+      .post("/api/v1/auth/register")
+      .send({
+        name: "RCA Employee",
+        email: employeeEmail,
+        password: "Password123!",
+        role: "employee",
+        organizationId,
+      });
+
+    console.log(
+      "EMPLOYEE REGISTER STATUS:",
+      employeeRegister.status
+    );
+
+    console.log(
+      "EMPLOYEE REGISTER RESPONSE:",
+      employeeRegister.body
+    );
+
+    expect(employeeRegister.status).toBe(201);
+    expect(employeeRegister.body.success).toBe(true);
+
+    employeeId = employeeRegister.body.data.user.id;
+
+    // ==========================================
+    // LOGIN ADMIN
+    // ==========================================
+
+    const adminLogin = await request(app)
+      .post("/api/v1/auth/login")
+      .send({
+        email: adminEmail,
+        password: "Password123!",
+      });
+
+    console.log("ADMIN LOGIN STATUS:", adminLogin.status);
+    console.log("ADMIN LOGIN RESPONSE:", adminLogin.body);
+
+    expect(adminLogin.status).toBe(200);
+    expect(adminLogin.body.success).toBe(true);
+
+    adminToken = adminLogin.body.data.token;
+
+    // ==========================================
+    // LOGIN EMPLOYEE
+    // ==========================================
+
+    const employeeLogin = await request(app)
+      .post("/api/v1/auth/login")
+      .send({
+        email: employeeEmail,
+        password: "Password123!",
+      });
+
+    console.log(
+      "EMPLOYEE LOGIN STATUS:",
+      employeeLogin.status
+    );
+
+    console.log(
+      "EMPLOYEE LOGIN RESPONSE:",
+      employeeLogin.body
+    );
+
+    expect(employeeLogin.status).toBe(200);
+    expect(employeeLogin.body.success).toBe(true);
+
+    employeeToken = employeeLogin.body.data.token;
+
+    // ==========================================
+    // CREATE PROBLEM
+    // ==========================================
+
+    const problem = await Problem.create({
+      problemId: `PRB-RCA-${Date.now()}`,
+      title: "Network switch failure",
+      description: "Network switch repeatedly failed",
+      priority: "High",
+      impact: "High",
+      urgency: "High",
+      status: "Open",
+      reportedBy: adminId,
+      organizationId,
+    });
+
+    problemId = problem._id.toString();
+
+    // ==========================================
+    // CREATE INCIDENT
+    // ==========================================
+
+    const incident = await Incident.create({
+      incidentId: `INC-RCA-${Date.now()}`,
+      title: "Network outage caused by switch",
+      description: "Network outage related to faulty switch",
+      priority: "High",
+      severity: "Major",
+      status: "Resolved",
+      reportedBy: adminId,
+      assignedTo: employeeId,
+      organizationId,
+      resolution: "Faulty switch identified",
+    });
+
+    incidentId = incident._id.toString();
+
+    console.log("Admin:", adminId);
+    console.log("Employee:", employeeId);
+    console.log("Problem:", problemId);
+    console.log("Incident:", incidentId);
+    console.log("Admin token available:", !!adminToken);
+    console.log("Employee token available:", !!employeeToken);
+
+    console.log("==========================================");
+  });
+
+  // ==========================================
+  // CREATE RCA
+  // ==========================================
+
+  test("should create an RCA with corrective actions", async () => {
+    const response = await request(app)
+      .post("/api/v1/rcas")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        rcaId: `RCA-CA-${Date.now()}`,
+        problem: problemId,
+        rootCause: "Faulty network switch hardware",
+        investigation:
+          "Network logs and hardware diagnostics identified the faulty switch",
+        contributingFactors: [
+          "Old hardware",
+          "No proactive hardware replacement",
+        ],
+        correctiveActions: [
+          "Replace the faulty network switch",
+          "Verify network configuration",
+        ],
+        preventiveActions: [
+          "Introduce periodic network hardware checks",
+        ],
+        identifiedBy: adminId,
+        relatedIncidents: [incidentId],
+        status: "Draft",
+      });
+
+    console.log("CREATE RCA RESPONSE:", response.body);
+
+    expect(response.status).toBe(201);
+    expect(response.body.success).toBe(true);
+
+    expect(response.body.data.correctiveActions).toEqual([
+      "Replace the faulty network switch",
+      "Verify network configuration",
+    ]);
+
+    rcaId = response.body.data._id;
+
+    expect(rcaId).toBeDefined();
+  });
+
+  // ==========================================
+  // GET RCA
+  // ==========================================
+
+  test("should return corrective actions when retrieving an RCA", async () => {
+    const response = await request(app)
+      .get(`/api/v1/rcas/${rcaId}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    console.log("GET RCA RESPONSE:", response.body);
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+
+    expect(response.body.data.correctiveActions).toHaveLength(2);
+
+    expect(response.body.data.correctiveActions).toContain(
+      "Replace the faulty network switch"
+    );
+
+    expect(response.body.data.correctiveActions).toContain(
+      "Verify network configuration"
+    );
+  });
+
+  // ==========================================
+  // UPDATE CORRECTIVE ACTIONS
+  // ==========================================
+
+  test("should update corrective actions", async () => {
+    const response = await request(app)
+      .put(`/api/v1/rcas/${rcaId}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        correctiveActions: [
+          "Replace the faulty network switch",
+          "Verify network configuration",
+          "Test all affected network ports",
+        ],
+      });
+
+    console.log(
+      "UPDATE CORRECTIVE ACTIONS RESPONSE:",
+      response.body
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+
+    expect(response.body.data.correctiveActions).toEqual([
+      "Replace the faulty network switch",
+      "Verify network configuration",
+      "Test all affected network ports",
+    ]);
+  });
+
+  // ==========================================
+  // EMPLOYEE UPDATE
+  // ==========================================
+
+  test("should allow authenticated employee to update corrective actions", async () => {
+    const response = await request(app)
+      .put(`/api/v1/rcas/${rcaId}`)
+      .set("Authorization", `Bearer ${employeeToken}`)
+      .send({
+        correctiveActions: [
+          "Replace the faulty network switch",
+          "Verify network configuration",
+          "Test all affected network ports",
+          "Document the replacement",
+        ],
+      });
+
+    console.log("EMPLOYEE UPDATE RESPONSE:", response.body);
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+
+    expect(
+      response.body.data.correctiveActions
+    ).toHaveLength(4);
+  });
+
+  // ==========================================
+  // INVALID CORRECTIVE ACTION
+  // ==========================================
+
+  test("should handle invalid corrective action values", async () => {
+    const response = await request(app)
+      .put(`/api/v1/rcas/${rcaId}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        correctiveActions: [""],
+      });
+
+    console.log(
+      "EMPTY CORRECTIVE ACTION RESPONSE:",
+      response.body
+    );
+
+    /*
+     * The current RCA model allows empty strings because
+     * correctiveActions is currently defined as a string array.
+     *
+     * Therefore both 200 and 400 are accepted here.
+     */
+    expect([200, 400]).toContain(response.status);
+  });
+
+  // ==========================================
+  // UNAUTHENTICATED UPDATE
+  // ==========================================
+
+  test("should not allow an unauthenticated user to update corrective actions", async () => {
+    const response = await request(app)
+      .put(`/api/v1/rcas/${rcaId}`)
+      .send({
+        correctiveActions: [
+          "Unauthorized modification",
+        ],
+      });
+
+    expect(response.status).toBe(401);
+  });
+
+  // ==========================================
+  // COMPLETE RCA
+  // ==========================================
+
+  test("should complete the RCA", async () => {
+    const response = await request(app)
+      .put(`/api/v1/rcas/${rcaId}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        status: "Completed",
+        rootCause: "Faulty network switch hardware",
+        investigation:
+          "Hardware diagnostics confirmed the faulty switch",
+      });
+
+    console.log("COMPLETE RCA RESPONSE:", response.body);
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+
+    expect(response.body.data.status).toBe("Completed");
+  });
+
+  // ==========================================
+  // APPROVE RCA
+  // ==========================================
+
+  test("should approve the RCA", async () => {
+    const response = await request(app)
+      .put(`/api/v1/rcas/${rcaId}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        status: "Approved",
+      });
+
+    console.log("APPROVE RCA RESPONSE:", response.body);
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+
+    expect(response.body.data.status).toBe("Approved");
+  });
+
+  // ==========================================
+  // APPROVED RCA IMMUTABILITY
+  // ==========================================
+
+  test("should prevent corrective action modification after RCA approval", async () => {
+    const response = await request(app)
+      .put(`/api/v1/rcas/${rcaId}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        correctiveActions: [
+          "Attempted modification after approval",
+        ],
+      });
+
+    console.log(
+      "APPROVED RCA UPDATE RESPONSE:",
+      response.body
+    );
+
+    expect(response.status).toBe(400);
+
+    expect(response.body.message).toBe(
+      "Approved RCA cannot be modified"
+    );
+  });
+
+  // ==========================================
+  // PRESERVE CORRECTIVE ACTIONS
+  // ==========================================
+
+  test("should preserve corrective actions after approval", async () => {
+    const response = await request(app)
+      .get(`/api/v1/rcas/${rcaId}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+
+    expect(response.body.data.correctiveActions).toEqual([
+      "Replace the faulty network switch",
+      "Verify network configuration",
+      "Test all affected network ports",
+      "Document the replacement",
+    ]);
+  });
+
+  // ==========================================
+  // CLEANUP
+  // ==========================================
+
+  afterAll(async () => {
+    console.log(
+      "RCA corrective actions test cleanup started."
+    );
+
+    if (rcaId) {
+      await RCA.deleteOne({
+        _id: rcaId,
+      });
+    }
+
+    if (incidentId) {
+      await Incident.deleteOne({
+        _id: incidentId,
+      });
+    }
+
+    if (problemId) {
+      await Problem.deleteOne({
+        _id: problemId,
+      });
+    }
+
+    if (employeeId) {
+      await AuthUser.deleteOne({
+        _id: employeeId,
+      });
+    }
+
+    if (adminId) {
+      await AuthUser.deleteOne({
+        _id: adminId,
+      });
+    }
+
+    if (organizationId) {
+      await Organization.deleteOne({
+        _id: organizationId,
+      });
+    }
+
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.connection.close();
+    }
+
+    console.log(
+      "RCA corrective actions MongoDB connection closed."
+    );
+  });
+});

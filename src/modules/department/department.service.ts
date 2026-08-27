@@ -1,6 +1,5 @@
-import Department, {
-  IDepartment,
-} from "./department.model";
+import { IDepartment } from "./department.model";
+import { departmentRepository } from "./department.repository";
 
 interface CreateDepartmentData {
   name: string;
@@ -15,7 +14,7 @@ interface CreateDepartmentData {
 export const createDepartment = async (
   data: CreateDepartmentData
 ): Promise<IDepartment> => {
-  const existingDepartment = await Department.findOne({
+  const existingDepartment = await departmentRepository.findOne({
     name: data.name,
     organizationId: data.organizationId,
   });
@@ -26,13 +25,11 @@ export const createDepartment = async (
     );
   }
 
-  const department = await Department.create({
+  return departmentRepository.create({
     name: data.name,
     description: data.description,
     organizationId: data.organizationId,
   });
-
-  return department;
 };
 
 // ==========================================
@@ -42,9 +39,9 @@ export const createDepartment = async (
 export const getDepartments = async (
   organizationId: string
 ): Promise<IDepartment[]> => {
-  return Department.find({
-    organizationId,
-  }).sort({ createdAt: -1 });
+  return departmentRepository.findAllByOrganization(
+    organizationId
+  );
 };
 
 // ==========================================
@@ -55,10 +52,10 @@ export const getDepartmentById = async (
   id: string,
   organizationId: string
 ): Promise<IDepartment | null> => {
-  return Department.findOne({
-    _id: id,
-    organizationId,
-  });
+  return departmentRepository.findByIdAndOrganization(
+    id,
+    organizationId
+  );
 };
 
 // ==========================================
@@ -74,16 +71,10 @@ export const updateDepartment = async (
     isActive: boolean;
   }>
 ): Promise<IDepartment | null> => {
-  return Department.findOneAndUpdate(
-    {
-      _id: id,
-      organizationId,
-    },
-    data,
-    {
-      new: true,
-      runValidators: true,
-    }
+  return departmentRepository.updateByIdAndOrganization(
+    id,
+    organizationId,
+    data
   );
 };
 
@@ -95,8 +86,8 @@ export const deleteDepartment = async (
   id: string,
   organizationId: string
 ): Promise<IDepartment | null> => {
-  return Department.findOneAndDelete({
-    _id: id,
-    organizationId,
-  });
+  return departmentRepository.deleteByIdAndOrganization(
+    id,
+    organizationId
+  );
 };

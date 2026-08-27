@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-import Problem, {
+import {
   ProblemImpact,
   ProblemPriority,
   ProblemStatus,
@@ -8,6 +8,7 @@ import Problem, {
 } from "./problem.model";
 
 import AuthUser from "../auth/auth.model";
+import { problemRepository } from "./problem.repository";
 
 // ==========================================
 // TYPES
@@ -44,24 +45,17 @@ interface UpdateProblemData {
 export const createProblem = async (
   data: CreateProblemData
 ) => {
-  // ------------------------------------------
-  // CHECK DUPLICATE PROBLEM ID
-  // ------------------------------------------
-
-  const existingProblem = await Problem.findOne({
-    problemId: data.problemId,
-    organizationId: data.organizationId,
-  });
+  const existingProblem =
+    await problemRepository.findOne({
+      problemId: data.problemId,
+      organizationId: data.organizationId,
+    });
 
   if (existingProblem) {
     throw new Error(
       "A problem with this ID already exists in this organization"
     );
   }
-
-  // ------------------------------------------
-  // VALIDATE REPORTER
-  // ------------------------------------------
 
   const reporter = await AuthUser.findOne({
     _id: data.reportedBy,
@@ -75,23 +69,16 @@ export const createProblem = async (
     );
   }
 
-  // ------------------------------------------
-  // CREATE PROBLEM
-  // ------------------------------------------
-
-  return Problem.create({
+  return problemRepository.create({
     problemId: data.problemId,
     title: data.title,
     description: data.description,
-
     priority: data.priority || "Medium",
     impact: data.impact || "Medium",
     urgency: data.urgency || "Medium",
-
     status: "Open",
-
-    reportedBy: data.reportedBy,
-    organizationId: data.organizationId,
+    reportedBy: new mongoose.Types.ObjectId(data.reportedBy),
+organizationId: new mongoose.Types.ObjectId(data.organizationId),
   });
 };
 
@@ -102,20 +89,9 @@ export const createProblem = async (
 export const getProblemsByOrganization = async (
   organizationId: string
 ) => {
-  return Problem.find({
-    organizationId,
-  })
-    .populate(
-      "reportedBy",
-      "name email role"
-    )
-    .populate(
-      "assignedTo",
-      "name email role"
-    )
-    .sort({
-      createdAt: -1,
-    });
+  return problemRepository.findAllByOrganization(
+    organizationId
+  );
 };
 
 // ==========================================
@@ -130,18 +106,10 @@ export const getProblemById = async (
     return null;
   }
 
-  return Problem.findOne({
-    _id: id,
-    organizationId,
-  })
-    .populate(
-      "reportedBy",
-      "name email role"
-    )
-    .populate(
-      "assignedTo",
-      "name email role"
-    );
+  return problemRepository.findByIdAndOrganization(
+    id,
+    organizationId
+  );
 };
 
 // ==========================================
@@ -153,30 +121,23 @@ export const updateProblem = async (
   organizationId: string,
   data: UpdateProblemData
 ) => {
-  // ------------------------------------------
-  // VALIDATE OBJECT ID
-  // ------------------------------------------
-
   if (!mongoose.Types.ObjectId.isValid(id)) {
     return null;
   }
 
-  // ------------------------------------------
-  // FIND PROBLEM
-  // ------------------------------------------
-
-  const problem = await Problem.findOne({
-    _id: id,
-    organizationId,
-  });
+  const problem =
+    await problemRepository.findOne({
+      _id: id,
+      organizationId,
+    });
 
   if (!problem) {
     return null;
   }
 
-  // ------------------------------------------
+  // ==========================================
   // NORMALIZE STATUS
-  // ------------------------------------------
+  // ==========================================
 
   const currentStatus = String(
     problem.status
@@ -186,7 +147,7 @@ export const updateProblem = async (
     ? String(data.status).trim()
     : undefined;
 
-  const updateData: any = {
+  const updateData: Record<string, any> = {
     ...data,
   };
 
@@ -323,8 +284,7 @@ export const updateProblem = async (
         );
       }
 
-      updateData.resolvedAt =
-        new Date();
+      updateData.resolvedAt = new Date();
     }
 
     // ----------------------------------------
@@ -340,8 +300,7 @@ export const updateProblem = async (
         );
       }
 
-      updateData.closedAt =
-        new Date();
+      updateData.closedAt = new Date();
     }
   }
 
@@ -349,25 +308,11 @@ export const updateProblem = async (
   // UPDATE DATABASE
   // ==========================================
 
-  return Problem.findOneAndUpdate(
-    {
-      _id: id,
-      organizationId,
-    },
-    updateData,
-    {
-      new: true,
-      runValidators: true,
-    }
-  )
-    .populate(
-      "reportedBy",
-      "name email role"
-    )
-    .populate(
-      "assignedTo",
-      "name email role"
-    );
+  return problemRepository.updateByIdAndOrganization(
+    id,
+    organizationId,
+    updateData
+  );
 };
 
 // ==========================================
@@ -382,8 +327,8 @@ export const deleteProblem = async (
     return null;
   }
 
-  return Problem.findOneAndDelete({
-    _id: id,
-    organizationId,
-  });
+  return problemRepository.deleteByIdAndOrganization(
+    id,
+    organizationId
+  );
 };

@@ -1,822 +1,464 @@
 import mongoose from "mongoose";
 
-import Incident from "../incident/incident.model";
-import Problem from "../problem/problem.model";
-import ServiceRequest from "../service-request/serviceRequest.model";
-import SLA from "../sla/sla.model";
-
-import {
-  AnalyticsOverview,
-  IncidentAnalytics,
-  ProblemAnalytics,
-  ServiceRequestAnalytics,
-  SLAAnalytics,
-  CountBreakdown,
-  IncidentTimeSeries,
-} from "./analytics.types";
+import { authRepository } from "../auth/auth.repository";
+import { incidentRepository } from "../incident/incident.repository";
+import { assetRepository } from "../asset/asset.repository";
+import { changeRepository } from "../change/change.repository";
 
 // ==========================================
-// ORGANIZATION ID VALIDATION
+// TYPES
 // ==========================================
 
-const validateOrganizationId = (
-  organizationId: string
-): mongoose.Types.ObjectId => {
-  if (!mongoose.Types.ObjectId.isValid(organizationId)) {
+export interface TechnicianPerformance {
+  technicianId: string;
+  technicianName: string;
+  email: string;
+
+  totalAssigned: number;
+  openIncidents: number;
+  inProgressIncidents: number;
+  resolvedIncidents: number;
+  closedIncidents: number;
+
+  totalResolvedOrClosed: number;
+  resolutionRate: number;
+
+  averageResolutionTimeHours: number | null;
+}
+
+export interface AssetHealthAnalytics {
+  totalAssets: number;
+
+  available: number;
+  assigned: number;
+  maintenance: number;
+  retired: number;
+
+  activeAssets: number;
+  healthyAssets: number;
+
+  healthRate: number;
+  maintenanceRate: number;
+  retiredRate: number;
+}
+
+export interface ChangeSuccessRateAnalytics {
+  totalChanges: number;
+
+  completed: number;
+  failed: number;
+  cancelled: number;
+
+  successfulChanges: number;
+  unsuccessfulChanges: number;
+  evaluatedChanges: number;
+  unevaluatedChanges: number;
+
+  successRate: number;
+  failureRate: number;
+}
+
+// ==========================================
+// VALIDATE ORGANIZATION ID
+// ==========================================
+
+const validateOrganizationId = (organizationId: string) => {
+  if (
+    !organizationId ||
+    !mongoose.Types.ObjectId.isValid(organizationId)
+  ) {
     throw new Error("Invalid organization ID");
   }
-
-  return new mongoose.Types.ObjectId(organizationId);
 };
 
 // ==========================================
-// BUILD EMPTY DATE RANGE
+// ROUND PERCENTAGE
 // ==========================================
 
-const getLast30Days = (): string[] => {
-  const dates: string[] = [];
-
-  const today = new Date();
-
-  for (let i = 29; i >= 0; i--) {
-    const date = new Date(today);
-
-    date.setHours(0, 0, 0, 0);
-
-    date.setDate(
-      today.getDate() - i
-    );
-
-    dates.push(
-      date.toISOString().split("T")[0]
-    );
+const percentage = (
+  numerator: number,
+  denominator: number
+): number => {
+  if (denominator === 0) {
+    return 0;
   }
 
-  return dates;
+  return Number(
+    ((numerator / denominator) * 100).toFixed(2)
+  );
 };
 
 // ==========================================
-// INCIDENT ANALYTICS
+// TECHNICIAN PERFORMANCE
 // ==========================================
 
-const getIncidentAnalytics = async (
+export const getTechnicianPerformance = async (
   organizationId: string
-): Promise<IncidentAnalytics> => {
-  const orgId =
-    validateOrganizationId(organizationId);
+): Promise<TechnicianPerformance[]> => {
+  validateOrganizationId(organizationId);
 
-  // ==========================================
-  // BASIC COUNTS
-  // ==========================================
+  /*
+   * Only active employees are technicians.
+   *
+   * Admins are intentionally excluded because
+   * incidents are only assignable to employees.
+   */
 
-  const [
-    total,
-    open,
-    inProgress,
-    pending,
-    resolved,
-    closed,
-    critical,
-    highPriority,
-  ] = await Promise.all([
-    Incident.countDocuments({
-      organizationId: orgId,
-    }),
-
-    Incident.countDocuments({
-      organizationId: orgId,
-      status: "Open",
-    }),
-
-    Incident.countDocuments({
-      organizationId: orgId,
-      status: "In Progress",
-    }),
-
-    Incident.countDocuments({
-      organizationId: orgId,
-      status: "Pending",
-    }),
-
-    Incident.countDocuments({
-      organizationId: orgId,
-      status: "Resolved",
-    }),
-
-    Incident.countDocuments({
-      organizationId: orgId,
-      status: "Closed",
-    }),
-
-    Incident.countDocuments({
-      organizationId: orgId,
-      severity: "Critical",
-    }),
-
-    Incident.countDocuments({
-      organizationId: orgId,
-      priority: "High",
-    }),
-  ]);
-
-  // ==========================================
-  // PRIORITY BREAKDOWN
-  // ==========================================
-
-  const priorityAggregation =
-    await Incident.aggregate([
-      {
-        $match: {
-          organizationId: orgId,
-        },
-      },
-
-      {
-        $group: {
-          _id: "$priority",
-          count: {
-            $sum: 1,
-          },
-        },
-      },
-    ]);
-
-  const byPriority: CountBreakdown = {};
-
-  priorityAggregation.forEach(
-    (item) => {
-      byPriority[item._id] = item.count;
-    }
-  );
-
-  // ==========================================
-  // SEVERITY BREAKDOWN
-  // ==========================================
-
-  const severityAggregation =
-    await Incident.aggregate([
-      {
-        $match: {
-          organizationId: orgId,
-        },
-      },
-
-      {
-        $group: {
-          _id: "$severity",
-          count: {
-            $sum: 1,
-          },
-        },
-      },
-    ]);
-
-  const bySeverity: CountBreakdown = {};
-
-  severityAggregation.forEach(
-    (item) => {
-      bySeverity[item._id] = item.count;
-    }
-  );
-
-  // ==========================================
-  // STATUS BREAKDOWN
-  // ==========================================
-
-  const statusAggregation =
-    await Incident.aggregate([
-      {
-        $match: {
-          organizationId: orgId,
-        },
-      },
-
-      {
-        $group: {
-          _id: "$status",
-          count: {
-            $sum: 1,
-          },
-        },
-      },
-    ]);
-
-  const byStatus: CountBreakdown = {};
-
-  statusAggregation.forEach(
-    (item) => {
-      byStatus[item._id] = item.count;
-    }
-  );
-
-  // ==========================================
-  // AVERAGE RESOLUTION TIME
-  // ==========================================
-
-  const resolutionAggregation =
-    await Incident.aggregate([
-      {
-        $match: {
-          organizationId: orgId,
-
-          resolvedAt: {
-            $exists: true,
-            $ne: null,
-          },
-        },
-      },
-
-      {
-        $project: {
-          resolutionTime: {
-            $subtract: [
-              "$resolvedAt",
-              "$createdAt",
-            ],
-          },
-        },
-      },
-
-      {
-        $group: {
-          _id: null,
-
-          averageResolutionTime: {
-            $avg: "$resolutionTime",
-          },
-        },
-      },
-    ]);
-
-  const averageResolutionTimeMs =
-    resolutionAggregation.length > 0
-      ? resolutionAggregation[0]
-          .averageResolutionTime
-      : 0;
-
-  const averageResolutionTimeMinutes =
-    Math.round(
-      averageResolutionTimeMs /
-        (1000 * 60)
+  const technicians =
+    await authRepository.findActiveEmployeesByOrganization(
+      organizationId
     );
 
-  const averageResolutionTimeHours =
-    Number(
-      (
-        averageResolutionTimeMinutes /
-        60
-      ).toFixed(2)
-    );
+  const results: TechnicianPerformance[] = [];
 
-  // ==========================================
-  // INCIDENTS OVER LAST 30 DAYS
-  // ==========================================
+  /*
+   * Each technician's incidents are retrieved
+   * through the repository layer.
+   *
+   * This keeps database access out of the
+   * analytics service.
+   */
 
-  const startDate = new Date();
-
-  startDate.setHours(0, 0, 0, 0);
-
-  startDate.setDate(
-    startDate.getDate() - 29
-  );
-
-  const timeSeriesAggregation =
-    await Incident.aggregate([
-      {
-        $match: {
-          organizationId: orgId,
-
-          createdAt: {
-            $gte: startDate,
-          },
-        },
-      },
-
-      {
-        $group: {
-          _id: {
-            $dateToString: {
-              format: "%Y-%m-%d",
-              date: "$createdAt",
-            },
-          },
-
-          count: {
-            $sum: 1,
-          },
-        },
-      },
-
-      {
-        $sort: {
-          _id: 1,
-        },
-      },
-    ]);
-
-  const timeSeriesMap: Record<
-    string,
-    number
-  > = {};
-
-  timeSeriesAggregation.forEach(
-    (item) => {
-      timeSeriesMap[item._id] =
-        item.count;
-    }
-  );
-
-  const dates = getLast30Days();
-
-  const overTime: IncidentTimeSeries[] =
-    dates.map((date) => ({
-      date,
-      count:
-        timeSeriesMap[date] || 0,
-    }));
-
-  // ==========================================
-  // RETURN INCIDENT ANALYTICS
-  // ==========================================
-
-  return {
-    total,
-
-    open,
-    inProgress,
-    pending,
-    resolved,
-    closed,
-
-    critical,
-    highPriority,
-
-    byPriority,
-    bySeverity,
-    byStatus,
-
-    averageResolutionTimeMinutes,
-    averageResolutionTimeHours,
-
-    overTime,
-  };
-};
-
-// ==========================================
-// PROBLEM ANALYTICS
-// ==========================================
-
-const getProblemAnalytics = async (
-  organizationId: string
-): Promise<ProblemAnalytics> => {
-  const orgId =
-    validateOrganizationId(organizationId);
-
-  // ==========================================
-  // BASIC COUNTS
-  // ==========================================
-
-  const [
-    total,
-    open,
-    underInvestigation,
-    knownError,
-    resolved,
-    closed,
-    highPriority,
-  ] = await Promise.all([
-    Problem.countDocuments({
-      organizationId: orgId,
-    }),
-
-    Problem.countDocuments({
-      organizationId: orgId,
-      status: "Open",
-    }),
-
-    Problem.countDocuments({
-      organizationId: orgId,
-      status: "Under Investigation",
-    }),
-
-    Problem.countDocuments({
-      organizationId: orgId,
-      status: "Known Error",
-    }),
-
-    Problem.countDocuments({
-      organizationId: orgId,
-      status: "Resolved",
-    }),
-
-    Problem.countDocuments({
-      organizationId: orgId,
-      status: "Closed",
-    }),
-
-    Problem.countDocuments({
-      organizationId: orgId,
-      priority: "High",
-    }),
-  ]);
-
-  // ==========================================
-  // PRIORITY BREAKDOWN
-  // ==========================================
-
-  const priorityAggregation =
-    await Problem.aggregate([
-      {
-        $match: {
-          organizationId: orgId,
-        },
-      },
-
-      {
-        $group: {
-          _id: "$priority",
-          count: {
-            $sum: 1,
-          },
-        },
-      },
-    ]);
-
-  const byPriority: CountBreakdown = {};
-
-  priorityAggregation.forEach(
-    (item) => {
-      byPriority[item._id] =
-        item.count;
-    }
-  );
-
-  // ==========================================
-  // STATUS BREAKDOWN
-  // ==========================================
-
-  const statusAggregation =
-    await Problem.aggregate([
-      {
-        $match: {
-          organizationId: orgId,
-        },
-      },
-
-      {
-        $group: {
-          _id: "$status",
-          count: {
-            $sum: 1,
-          },
-        },
-      },
-    ]);
-
-  const byStatus: CountBreakdown = {};
-
-  statusAggregation.forEach(
-    (item) => {
-      byStatus[item._id] =
-        item.count;
-    }
-  );
-
-  // ==========================================
-  // RETURN
-  // ==========================================
-
-  return {
-    total,
-
-    open,
-    underInvestigation,
-    knownError,
-    resolved,
-    closed,
-
-    highPriority,
-
-    byPriority,
-    byStatus,
-  };
-};
-
-// ==========================================
-// SERVICE REQUEST ANALYTICS
-// ==========================================
-
-const getServiceRequestAnalytics =
-  async (
-    organizationId: string
-  ): Promise<ServiceRequestAnalytics> => {
-    const orgId =
-      validateOrganizationId(
-        organizationId
+  for (const technician of technicians) {
+    const incidents =
+      await incidentRepository.findByTechnician(
+        organizationId,
+        technician._id.toString()
       );
 
-    // ========================================
-    // BASIC COUNTS
-    // ========================================
+    const totalAssigned = incidents.length;
 
-    const [
-      total,
-      pending,
-      approved,
-      inProgress,
-      completed,
-      rejected,
-      cancelled,
-    ] = await Promise.all([
-      ServiceRequest.countDocuments({
-        organizationId: orgId,
-      }),
+    const openIncidents = incidents.filter(
+      (incident) =>
+        incident.status === "Open"
+    ).length;
 
-      ServiceRequest.countDocuments({
-        organizationId: orgId,
-        status: "Pending",
-      }),
+    const inProgressIncidents = incidents.filter(
+      (incident) =>
+        incident.status === "In Progress"
+    ).length;
 
-      ServiceRequest.countDocuments({
-        organizationId: orgId,
-        status: "Approved",
-      }),
+    const resolvedIncidents = incidents.filter(
+      (incident) =>
+        incident.status === "Resolved"
+    ).length;
 
-      ServiceRequest.countDocuments({
-        organizationId: orgId,
-        status: "In Progress",
-      }),
+    const closedIncidents = incidents.filter(
+      (incident) =>
+        incident.status === "Closed"
+    ).length;
 
-      ServiceRequest.countDocuments({
-        organizationId: orgId,
-        status: "Completed",
-      }),
+    const completedIncidents = incidents.filter(
+      (incident) =>
+        incident.status === "Resolved" ||
+        incident.status === "Closed"
+    );
 
-      ServiceRequest.countDocuments({
-        organizationId: orgId,
-        status: "Rejected",
-      }),
+    const totalResolvedOrClosed =
+      completedIncidents.length;
 
-      ServiceRequest.countDocuments({
-        organizationId: orgId,
-        status: "Cancelled",
-      }),
-    ]);
-
-    // ========================================
-    // PRIORITY BREAKDOWN
-    // ========================================
-
-    const priorityAggregation =
-      await ServiceRequest.aggregate([
-        {
-          $match: {
-            organizationId: orgId,
-          },
-        },
-
-        {
-          $group: {
-            _id: "$priority",
-            count: {
-              $sum: 1,
-            },
-          },
-        },
-      ]);
-
-    const byPriority: CountBreakdown =
-      {};
-
-    priorityAggregation.forEach(
-      (item) => {
-        byPriority[item._id] =
-          item.count;
-      }
+    const resolutionRate = percentage(
+      totalResolvedOrClosed,
+      totalAssigned
     );
 
     // ========================================
-    // TYPE BREAKDOWN
+    // AVERAGE RESOLUTION TIME
     // ========================================
 
-    const typeAggregation =
-      await ServiceRequest.aggregate([
-        {
-          $match: {
-            organizationId: orgId,
-          },
-        },
+    const resolutionTimes = completedIncidents
+      .map((incident) => {
+        /*
+         * Prefer resolvedAt.
+         *
+         * For incidents closed without a
+         * previous resolution timestamp,
+         * closedAt is used as the completion
+         * timestamp.
+         */
 
-        {
-          $group: {
-            _id: "$type",
-            count: {
-              $sum: 1,
-            },
-          },
-        },
-      ]);
+        const endDate =
+          incident.resolvedAt ??
+          incident.closedAt;
 
-    const byType: CountBreakdown = {};
+        if (!endDate) {
+          return null;
+        }
 
-    typeAggregation.forEach(
-      (item) => {
-        byType[item._id] =
-          item.count;
-      }
-    );
+        const start = new Date(
+          incident.createdAt
+        ).getTime();
 
-    // ========================================
-    // STATUS BREAKDOWN
-    // ========================================
+        const end = new Date(
+          endDate
+        ).getTime();
 
-    const statusAggregation =
-      await ServiceRequest.aggregate([
-        {
-          $match: {
-            organizationId: orgId,
-          },
-        },
+        if (
+          !Number.isFinite(start) ||
+          !Number.isFinite(end) ||
+          end <= start
+        ) {
+          return null;
+        }
 
-        {
-          $group: {
-            _id: "$status",
-            count: {
-              $sum: 1,
-            },
-          },
-        },
-      ]);
+        return (
+          (end - start) /
+          (1000 * 60 * 60)
+        );
+      })
+      .filter(
+        (
+          value
+        ): value is number =>
+          value !== null
+      );
 
-    const byStatus: CountBreakdown =
-      {};
+    const averageResolutionTimeHours =
+      resolutionTimes.length === 0
+        ? null
+        : Number(
+            (
+              resolutionTimes.reduce(
+                (sum, value) =>
+                  sum + value,
+                0
+              ) /
+              resolutionTimes.length
+            ).toFixed(2)
+          );
 
-    statusAggregation.forEach(
-      (item) => {
-        byStatus[item._id] =
-          item.count;
-      }
-    );
+    results.push({
+      technicianId:
+        technician._id.toString(),
 
-    // ========================================
-    // RETURN
-    // ========================================
+      technicianName:
+        technician.name,
 
-    return {
-      total,
+      email:
+        technician.email,
 
-      pending,
-      approved,
-      inProgress,
-      completed,
-      rejected,
-      cancelled,
+      totalAssigned,
 
-      byPriority,
-      byType,
-      byStatus,
-    };
-  };
+      openIncidents,
 
-// ==========================================
-// SLA ANALYTICS
-// ==========================================
+      inProgressIncidents,
 
-const getSLAAnalytics = async (
-  organizationId: string
-): Promise<SLAAnalytics> => {
-  const orgId =
-    validateOrganizationId(organizationId);
+      resolvedIncidents,
 
-  // ==========================================
-  // BASIC COUNTS
-  // ==========================================
+      closedIncidents,
 
-  const [
-    total,
-    active,
-    completed,
-    responseBreached,
-    resolutionBreached,
-  ] = await Promise.all([
-    SLA.countDocuments({
-      organizationId: orgId,
-    }),
+      totalResolvedOrClosed,
 
-    SLA.countDocuments({
-      organizationId: orgId,
-      status: "Active",
-    }),
+      resolutionRate,
 
-    SLA.countDocuments({
-      organizationId: orgId,
-      status: "Completed",
-    }),
-
-    SLA.countDocuments({
-      organizationId: orgId,
-      responseBreached: true,
-    }),
-
-    SLA.countDocuments({
-      organizationId: orgId,
-      resolutionBreached: true,
-    }),
-  ]);
-
-  // ==========================================
-  // TOTAL BREACHED
-  // ==========================================
-
-  const totalBreached =
-    await SLA.countDocuments({
-      organizationId: orgId,
-
-      $or: [
-        {
-          responseBreached: true,
-        },
-        {
-          resolutionBreached: true,
-        },
-      ],
+      averageResolutionTimeHours,
     });
+  }
 
-  // ==========================================
-  // COMPLIANCE
-  // ==========================================
+  /*
+   * Highest resolution rate first.
+   *
+   * If two technicians have the same rate,
+   * the one with more resolved/closed incidents
+   * comes first.
+   */
 
-  const compliant =
-    Math.max(
-      total - totalBreached,
-      0
+  return results.sort(
+    (a, b) =>
+      b.resolutionRate -
+        a.resolutionRate ||
+      b.totalResolvedOrClosed -
+        a.totalResolvedOrClosed
+  );
+};
+
+// ==========================================
+// ASSET HEALTH
+// ==========================================
+
+export const getAssetHealth = async (
+  organizationId: string
+): Promise<AssetHealthAnalytics> => {
+  validateOrganizationId(organizationId);
+
+  const assets =
+    await assetRepository.findByOrganization(
+      organizationId
     );
 
-  const complianceRate =
-    total > 0
-      ? Number(
-          (
-            (compliant / total) *
-            100
-          ).toFixed(2)
-        )
-      : 100;
+  const totalAssets = assets.length;
 
-  // ==========================================
-  // RETURN
-  // ==========================================
+  const available = assets.filter(
+    (asset) =>
+      asset.status === "Available"
+  ).length;
+
+  const assigned = assets.filter(
+    (asset) =>
+      asset.status === "Assigned"
+  ).length;
+
+  const maintenance = assets.filter(
+    (asset) =>
+      asset.status === "Maintenance"
+  ).length;
+
+  const retired = assets.filter(
+    (asset) =>
+      asset.status === "Retired"
+  ).length;
+
+  /*
+   * Active assets are assets currently
+   * available for use or assigned to users.
+   */
+
+  const activeAssets =
+    available + assigned;
+
+  /*
+   * Healthy assets are active assets.
+   *
+   * Maintenance and retired assets are
+   * considered unhealthy/inactive.
+   */
+
+  const healthyAssets =
+    activeAssets;
+
+  const healthRate = percentage(
+    healthyAssets,
+    totalAssets
+  );
+
+  const maintenanceRate = percentage(
+    maintenance,
+    totalAssets
+  );
+
+  const retiredRate = percentage(
+    retired,
+    totalAssets
+  );
 
   return {
-    total,
+    totalAssets,
 
-    active,
-    completed,
+    available,
 
-    responseBreached,
-    resolutionBreached,
+    assigned,
 
-    totalBreached,
-    compliant,
+    maintenance,
 
-    complianceRate,
+    retired,
+
+    activeAssets,
+
+    healthyAssets,
+
+    healthRate,
+
+    maintenanceRate,
+
+    retiredRate,
   };
 };
 
 // ==========================================
-// ANALYTICS OVERVIEW
+// CHANGE SUCCESS RATE
 // ==========================================
 
-export const getAnalyticsOverview =
-  async (
-    organizationId: string
-  ): Promise<AnalyticsOverview> => {
-    const [
-      incidents,
-      problems,
-      serviceRequests,
-      sla,
-    ] = await Promise.all([
-      getIncidentAnalytics(
-        organizationId
-      ),
+export const getChangeSuccessRate = async (
+  organizationId: string
+): Promise<ChangeSuccessRateAnalytics> => {
+  validateOrganizationId(organizationId);
 
-      getProblemAnalytics(
-        organizationId
-      ),
+  const changes =
+    await changeRepository.findByOrganization(
+      organizationId
+    );
 
-      getServiceRequestAnalytics(
-        organizationId
-      ),
+  const totalChanges = changes.length;
 
-      getSLAAnalytics(
-        organizationId
-      ),
-    ]);
+  const completed = changes.filter(
+    (change) =>
+      change.status === "Completed"
+  ).length;
 
-    return {
-      incidents,
-      problems,
-      serviceRequests,
-      sla,
-    };
+  const failed = changes.filter(
+    (change) =>
+      change.status === "Failed"
+  ).length;
+
+  const cancelled = changes.filter(
+    (change) =>
+      change.status === "Cancelled"
+  ).length;
+
+  /*
+   * Completed changes are successful.
+   */
+
+  const successfulChanges =
+    completed;
+
+  /*
+   * Failed and cancelled changes are
+   * unsuccessful.
+   */
+
+  const unsuccessfulChanges =
+    failed + cancelled;
+
+  /*
+   * Only completed, failed, and cancelled
+   * changes have a final outcome.
+   */
+
+  const evaluatedChanges =
+    successfulChanges +
+    unsuccessfulChanges;
+
+  /*
+   * Draft, Pending Approval, Approved,
+   * Scheduled, In Progress, and Rejected
+   * changes are not yet counted as a
+   * success/failure outcome.
+   */
+
+  const unevaluatedChanges =
+    totalChanges -
+    evaluatedChanges;
+
+  const successRate = percentage(
+    successfulChanges,
+    evaluatedChanges
+  );
+
+  const failureRate = percentage(
+    unsuccessfulChanges,
+    evaluatedChanges
+  );
+
+  return {
+    totalChanges,
+
+    completed,
+
+    failed,
+
+    cancelled,
+
+    successfulChanges,
+
+    unsuccessfulChanges,
+
+    evaluatedChanges,
+
+    unevaluatedChanges,
+
+    successRate,
+
+    failureRate,
   };
+};

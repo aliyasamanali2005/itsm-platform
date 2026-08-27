@@ -1,10 +1,13 @@
-import Incident, {
+import mongoose from "mongoose";
+
+import {
   IncidentPriority,
   IncidentSeverity,
   IncidentStatus,
 } from "./incident.model";
 
-import AuthUser from "../auth/auth.model";
+import { incidentRepository } from "./incident.repository";
+import { authRepository } from "../auth/auth.repository";
 import SLA from "../sla/sla.model";
 
 import {
@@ -35,11 +38,11 @@ interface UpdateIncidentData {
   status?: IncidentStatus;
 
   /**
-   * User ID of the employee to assign.
+   * Employee ID to assign.
    *
-   * null / empty string explicitly unassigns.
+   * null / empty string = unassign.
    */
-  assignedTo?: string;
+  assignedTo?: string | null;
 
   resolution?: string;
 }
@@ -49,12 +52,12 @@ interface UpdateIncidentData {
 // ==========================================
 
 /**
- * Convert incident priority into the priority
- * format expected by the notification system.
+ * Convert incident priority into the
+ * notification priority format.
  */
 const getNotificationPriority = (
   priority: IncidentPriority
-) => {
+): "Critical" | "High" | "Medium" | "Low" => {
   switch (priority) {
     case "Critical":
       return "Critical";
@@ -71,18 +74,14 @@ const getNotificationPriority = (
 };
 
 /**
- * Extract an ObjectId string from an assignment
+ * Extract ObjectId string from an assignment
  * rule targetUser.
  *
  * targetUser can be:
  *
- * 1. An ObjectId
- * 2. A string ObjectId
- * 3. A populated AuthUser object
- *
- * This prevents:
- *
- * Cast to ObjectId failed for value "[object Object]"
+ * 1. ObjectId
+ * 2. String ObjectId
+ * 3. Populated user object
  */
 const getTargetUserId = (
   targetUser: any
@@ -91,7 +90,6 @@ const getTargetUserId = (
     return undefined;
   }
 
-  // Populated AuthUser document/object
   if (
     typeof targetUser === "object" &&
     targetUser._id
@@ -99,15 +97,28 @@ const getTargetUserId = (
     return targetUser._id.toString();
   }
 
-  // ObjectId or string
   return targetUser.toString();
 };
 
 /**
- * Queue an incident assignment notification.
+ * Validate and convert a value to ObjectId.
+ */
+const toObjectId = (
+  value: string,
+  fieldName: string
+): mongoose.Types.ObjectId => {
+  if (!mongoose.Types.ObjectId.isValid(value)) {
+    throw new Error(`Invalid ${fieldName}`);
+  }
+
+  return new mongoose.Types.ObjectId(value);
+};
+
+/**
+ * Queue assignment notification.
  *
  * Notification failure must NEVER cause the
- * main incident operation to fail.
+ * incident operation itself to fail.
  */
 const queueIncidentAssignmentNotification =
   async (
@@ -117,7 +128,7 @@ const queueIncidentAssignmentNotification =
     incidentMongoId: string,
     priority: IncidentPriority,
     message: string
-  ) => {
+  ): Promise<void> => {
     try {
       await notificationQueue.add(
         "notification-created",
@@ -189,13 +200,27 @@ export const createIncident = async (
   data: CreateIncidentData
 ) => {
   // ==========================================
+  // VALIDATE IDS
+  // ==========================================
+
+  const reportedByObjectId = toObjectId(
+    data.reportedBy,
+    "reportedBy"
+  );
+
+  const organizationObjectId = toObjectId(
+    data.organizationId,
+    "organizationId"
+  );
+
+  // ==========================================
   // DUPLICATE INCIDENT CHECK
   // ==========================================
 
   const existingIncident =
-    await Incident.findOne({
+    await incidentRepository.findOne({
       incidentId: data.incidentId,
-      organizationId: data.organizationId,
+      organizationId: organizationObjectId,
     });
 
   if (existingIncident) {
@@ -208,11 +233,12 @@ export const createIncident = async (
   // VALIDATE REPORTER
   // ==========================================
 
-  const reporter = await AuthUser.findOne({
-    _id: data.reportedBy,
-    organizationId: data.organizationId,
-    isActive: true,
-  });
+  const reporter =
+    await authRepository.findOne({
+      _id: reportedByObjectId,
+      organizationId: organizationObjectId,
+      isActive: true,
+    });
 
   if (!reporter) {
     throw new Error(
@@ -238,7 +264,9 @@ export const createIncident = async (
   // AUTOMATIC ASSIGNMENT
   // ==========================================
 
-  let assignedTo: string | undefined;
+  let assignedTo:
+    | mongoose.Types.ObjectId
+    | undefined;
 
   try {
     console.log(
@@ -308,10 +336,6 @@ export const createIncident = async (
         "=========================================="
       );
 
-      // ========================================
-      // EXTRACT TARGET USER ID CORRECTLY
-      // ========================================
-
       const targetUserId =
         getTargetUserId(
           matchingRule.targetUser
@@ -319,51 +343,51 @@ export const createIncident = async (
 
       if (targetUserId) {
         // --------------------------------------
-        // Make sure the target employee still
-        // exists and belongs to this organization.
+        // Validate target employee
         // --------------------------------------
 
-        const targetEmployee =
-          await AuthUser.findOne({
-            _id: targetUserId,
-
-            organizationId:
-              data.organizationId,
-
-            role: "employee",
-
-            isActive: true,
-          });
-
-        if (!targetEmployee) {
+        if (
+          !mongoose.Types.ObjectId.isValid(
+            targetUserId
+          )
+        ) {
           console.warn(
-            "Assignment rule matched, but target employee is invalid."
+            "Assignment rule target user ID is invalid."
           );
-
-          assignedTo = undefined;
         } else {
-          // IMPORTANT:
-          // Store only the ObjectId string.
-          //
-          // Do NOT store the populated targetUser
-          // object in Incident.assignedTo.
+          const targetEmployee =
+            await authRepository.findOne({
+              _id: targetUserId,
+              organizationId:
+                organizationObjectId,
+              role: "employee",
+              isActive: true,
+            });
 
-          assignedTo =
-            targetEmployee._id.toString();
+          if (!targetEmployee) {
+            console.warn(
+              "Assignment rule matched, but target employee is invalid."
+            );
+          } else {
+            // Store ObjectId, not string.
 
-          console.log(
-            "AUTOMATIC ASSIGNMENT SUCCESSFUL"
-          );
+            assignedTo =
+              targetEmployee._id;
 
-          console.log(
-            "Assigned employee:",
-            targetEmployee.name
-          );
+            console.log(
+              "AUTOMATIC ASSIGNMENT SUCCESSFUL"
+            );
 
-          console.log(
-            "Assigned employee ID:",
-            assignedTo
-          );
+            console.log(
+              "Assigned employee:",
+              targetEmployee.name
+            );
+
+            console.log(
+              "Assigned employee ID:",
+              assignedTo.toString()
+            );
+          }
         }
       }
     } else {
@@ -372,13 +396,8 @@ export const createIncident = async (
       );
     }
   } catch (error: any) {
-    // ==========================================
-    // IMPORTANT
-    // ==========================================
-    //
-    // Assignment rule problems must NOT prevent
-    // incident creation.
-    //
+    // Assignment rule failure must NOT
+    // prevent incident creation.
 
     console.error(
       "Failed to apply incident assignment rule:",
@@ -392,28 +411,28 @@ export const createIncident = async (
   // CREATE INCIDENT
   // ==========================================
 
-  const incident = await Incident.create({
-    incidentId: data.incidentId,
+  const incident =
+    await incidentRepository.create({
+      incidentId: data.incidentId,
 
-    title: data.title,
+      title: data.title,
 
-    description: data.description,
+      description: data.description,
 
-    priority: incidentPriority,
+      priority: incidentPriority,
 
-    severity: incidentSeverity,
+      severity: incidentSeverity,
 
-    status: "Open",
+      status: "Open",
 
-    reportedBy: data.reportedBy,
+      reportedBy:
+        reportedByObjectId,
 
-    // This is now guaranteed to be an ObjectId
-    // string, not a populated object.
-    assignedTo,
+      assignedTo,
 
-    organizationId:
-      data.organizationId,
-  });
+      organizationId:
+        organizationObjectId,
+    });
 
   // ==========================================
   // AUTOMATIC ASSIGNMENT NOTIFICATION
@@ -421,7 +440,7 @@ export const createIncident = async (
 
   if (assignedTo) {
     await queueIncidentAssignmentNotification(
-      assignedTo,
+      assignedTo.toString(),
 
       data.organizationId,
 
@@ -439,17 +458,10 @@ export const createIncident = async (
   // RETURN POPULATED INCIDENT
   // ==========================================
 
-  return Incident.findById(
-    incident._id
-  )
-    .populate(
-      "reportedBy",
-      "name email role"
-    )
-    .populate(
-      "assignedTo",
-      "name email role"
-    );
+  return incidentRepository.findByIdAndOrganization(
+    incident._id.toString(),
+    data.organizationId
+  );
 };
 
 // ==========================================
@@ -460,20 +472,9 @@ export const getIncidentsByOrganization =
   async (
     organizationId: string
   ) => {
-    return Incident.find({
-      organizationId,
-    })
-      .populate(
-        "reportedBy",
-        "name email role"
-      )
-      .populate(
-        "assignedTo",
-        "name email role"
-      )
-      .sort({
-        createdAt: -1,
-      });
+    return incidentRepository.findAllByOrganization(
+      organizationId
+    );
   };
 
 // ==========================================
@@ -484,18 +485,14 @@ export const getIncidentById = async (
   id: string,
   organizationId: string
 ) => {
-  return Incident.findOne({
-    _id: id,
-    organizationId,
-  })
-    .populate(
-      "reportedBy",
-      "name email role"
-    )
-    .populate(
-      "assignedTo",
-      "name email role"
-    );
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return null;
+  }
+
+  return incidentRepository.findByIdAndOrganization(
+    id,
+    organizationId
+  );
 };
 
 // ==========================================
@@ -508,11 +505,19 @@ export const updateIncident = async (
   data: UpdateIncidentData
 ) => {
   // ==========================================
+  // VALIDATE INCIDENT ID
+  // ==========================================
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return null;
+  }
+
+  // ==========================================
   // FIND EXISTING INCIDENT
   // ==========================================
 
   const existingIncident =
-    await Incident.findOne({
+    await incidentRepository.findOne({
       _id: id,
       organizationId,
     });
@@ -534,9 +539,35 @@ export const updateIncident = async (
   // PREPARE UPDATE DATA
   // ==========================================
 
-  const updateData: Record<string, any> = {
-    ...data,
-  };
+  const updateData: Record<string, any> = {};
+
+  // Only copy fields that are actually
+  // intended to be updated.
+
+  if (data.title !== undefined) {
+    updateData.title = data.title;
+  }
+
+  if (data.description !== undefined) {
+    updateData.description =
+      data.description;
+  }
+
+  if (data.priority !== undefined) {
+    updateData.priority = data.priority;
+  }
+
+  if (data.severity !== undefined) {
+    updateData.severity = data.severity;
+  }
+
+  if (data.status !== undefined) {
+    updateData.status = data.status;
+  }
+
+  if (data.resolution !== undefined) {
+    updateData.resolution = data.resolution;
+  }
 
   // ==========================================
   // ASSIGNMENT VALIDATION
@@ -549,8 +580,23 @@ export const updateIncident = async (
     data.assignedTo !== null &&
     data.assignedTo !== ""
   ) {
+    // Validate ObjectId
+
+    if (
+      !mongoose.Types.ObjectId.isValid(
+        data.assignedTo
+      )
+    ) {
+      throw new Error(
+        "Invalid assigned user ID"
+      );
+    }
+
+    // Find active employee inside
+    // the same organization.
+
     assignedEmployee =
-      await AuthUser.findOne({
+      await authRepository.findOne({
         _id: data.assignedTo,
 
         organizationId,
@@ -573,7 +619,9 @@ export const updateIncident = async (
       );
     }
 
-    // Store ObjectId only.
+    // IMPORTANT:
+    // Store ObjectId, not string.
+
     updateData.assignedTo =
       assignedEmployee._id;
   }
@@ -617,10 +665,6 @@ export const updateIncident = async (
       existingIncident.closedAt ||
       new Date();
 
-    // If the incident is closed without
-    // previously being resolved, mark the
-    // resolution timestamp as well.
-
     if (!existingIncident.resolvedAt) {
       updateData.resolvedAt =
         new Date();
@@ -632,29 +676,11 @@ export const updateIncident = async (
   // ==========================================
 
   const incident =
-    await Incident.findOneAndUpdate(
-      {
-        _id: id,
-
-        organizationId,
-      },
-
-      updateData,
-
-      {
-        new: true,
-
-        runValidators: true,
-      }
-    )
-      .populate(
-        "reportedBy",
-        "name email role"
-      )
-      .populate(
-        "assignedTo",
-        "name email role"
-      );
+    await incidentRepository.updateByIdAndOrganization(
+      id,
+      organizationId,
+      updateData
+    );
 
   if (!incident) {
     return null;
@@ -666,7 +692,6 @@ export const updateIncident = async (
 
   const sla = await SLA.findOne({
     incidentId: id,
-
     organizationId,
   });
 
@@ -768,9 +793,12 @@ export const deleteIncident = async (
   id: string,
   organizationId: string
 ) => {
-  return Incident.findOneAndDelete({
-    _id: id,
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return null;
+  }
 
-    organizationId,
-  });
+  return incidentRepository.deleteByIdAndOrganization(
+    id,
+    organizationId
+  );
 };

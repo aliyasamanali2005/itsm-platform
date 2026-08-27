@@ -1,3 +1,4 @@
+
 import { Router } from "express";
 
 import {
@@ -8,6 +9,14 @@ import {
   updateRCAController,
   deleteRCAController,
 } from "./rca.controller";
+
+import {
+  createCorrectiveActionController,
+  getCorrectiveActionsController,
+  getCorrectiveActionController,
+  updateCorrectiveActionController,
+  deleteCorrectiveActionController,
+} from "./rcaCorrectiveAction.controller";
 
 import { authenticate } from "../../middleware/auth.middleware";
 
@@ -38,9 +47,80 @@ router.get(
 );
 
 // ==========================================
+// ==========================================
+// RCA CORRECTIVE ACTIONS
+// ==========================================
+// ==========================================
+
+// ==========================================
+// CREATE CORRECTIVE ACTION
+// ==========================================
+//
+// POST
+// /api/v1/rca/:id/corrective-actions
+//
+
+router.post(
+  "/:id/corrective-actions",
+  createCorrectiveActionController
+);
+
+// ==========================================
+// GET ALL CORRECTIVE ACTIONS
+// ==========================================
+//
+// GET
+// /api/v1/rca/:id/corrective-actions
+//
+
+router.get(
+  "/:id/corrective-actions",
+  getCorrectiveActionsController
+);
+
+// ==========================================
+// GET CORRECTIVE ACTION BY ID
+// ==========================================
+//
+// GET
+// /api/v1/rca/:id/corrective-actions/:actionId
+//
+
+router.get(
+  "/:id/corrective-actions/:actionId",
+  getCorrectiveActionController
+);
+
+// ==========================================
+// UPDATE CORRECTIVE ACTION
+// ==========================================
+//
+// PUT
+// /api/v1/rca/:id/corrective-actions/:actionId
+//
+
+router.put(
+  "/:id/corrective-actions/:actionId",
+  updateCorrectiveActionController
+);
+
+// ==========================================
+// DELETE CORRECTIVE ACTION
+// ==========================================
+//
+// DELETE
+// /api/v1/rca/:id/corrective-actions/:actionId
+//
+
+router.delete(
+  "/:id/corrective-actions/:actionId",
+  deleteCorrectiveActionController
+);
+
+// ==========================================
 // GET RCA BY PROBLEM
 // IMPORTANT:
-// This MUST come before /:id
+// MUST COME BEFORE /:id
 // ==========================================
 
 router.get(

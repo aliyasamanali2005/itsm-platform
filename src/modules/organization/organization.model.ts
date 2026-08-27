@@ -1,4 +1,11 @@
-import mongoose, { Document, Schema } from "mongoose";
+import mongoose, {
+  Document,
+  Schema,
+} from "mongoose";
+
+// ==========================================
+// ORGANIZATION INTERFACE
+// ==========================================
 
 export interface IOrganization extends Document {
   name: string;
@@ -9,41 +16,68 @@ export interface IOrganization extends Document {
   updatedAt: Date;
 }
 
-const organizationSchema = new Schema<IOrganization>(
-  {
-    name: {
-      type: String,
-      required: true,
-      trim: true,
-      unique: true,
-    },
+// ==========================================
+// ORGANIZATION SCHEMA
+// ==========================================
 
-    slug: {
-      type: String,
-      required: true,
-      trim: true,
-      lowercase: true,
-      unique: true,
-    },
+const organizationSchema =
+  new Schema<IOrganization>(
+    {
+      // ----------------------------------------
+      // ORGANIZATION NAME
+      // ----------------------------------------
 
-    description: {
-      type: String,
-      trim: true,
-    },
+      name: {
+        type: String,
+        required: [true, "Organization name is required"],
+        trim: true,
+        unique: true,
+      },
 
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
-  },
-  {
-    timestamps: true,
-  }
-);
+      // ----------------------------------------
+      // ORGANIZATION SLUG
+      // ----------------------------------------
 
-const Organization = mongoose.model<IOrganization>(
-  "Organization",
-  organizationSchema
-);
+      slug: {
+        type: String,
+        required: [true, "Organization slug is required"],
+        trim: true,
+        lowercase: true,
+        unique: true,
+      },
+
+      // ----------------------------------------
+      // DESCRIPTION
+      // ----------------------------------------
+
+      description: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+
+      // ----------------------------------------
+      // ACTIVE STATUS
+      // ----------------------------------------
+
+      isActive: {
+        type: Boolean,
+        default: true,
+      },
+    },
+    {
+      timestamps: true,
+    }
+  );
+
+// ==========================================
+// ORGANIZATION MODEL
+// ==========================================
+
+const Organization =
+  mongoose.model<IOrganization>(
+    "Organization",
+    organizationSchema
+  );
 
 export default Organization;

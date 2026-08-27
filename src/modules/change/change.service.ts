@@ -1,11 +1,14 @@
 import mongoose from "mongoose";
-import Change, {
+
+import {
   ChangeRisk,
   ChangeType,
   ChangeStatus,
 } from "./change.model";
-import AuthUser from "../auth/auth.model";
-import Asset from "../asset/asset.model";
+
+import { authRepository } from "../auth/auth.repository";
+import { assetRepository } from "../asset/asset.repository";
+import { changeRepository } from "./change.repository";
 
 // ==========================================
 // TYPES
@@ -47,10 +50,11 @@ interface UpdateChangeData {
 export const createChange = async (
   data: CreateChangeData
 ) => {
-  const existingChange = await Change.findOne({
-    changeId: data.changeId,
-    organizationId: data.organizationId,
-  });
+  const existingChange =
+    await changeRepository.findOne({
+      changeId: data.changeId,
+      organizationId: data.organizationId,
+    });
 
   if (existingChange) {
     throw new Error(
@@ -58,11 +62,12 @@ export const createChange = async (
     );
   }
 
-  const requester = await AuthUser.findOne({
-    _id: data.requestedBy,
-    organizationId: data.organizationId,
-    isActive: true,
-  });
+  const requester =
+    await authRepository.findOne({
+      _id: data.requestedBy,
+      organizationId: data.organizationId,
+      isActive: true,
+    });
 
   if (!requester) {
     throw new Error(
@@ -82,12 +87,11 @@ export const createChange = async (
     data.affectedAssets &&
     data.affectedAssets.length > 0
   ) {
-    const assets = await Asset.find({
-      _id: {
-        $in: data.affectedAssets,
-      },
-      organizationId: data.organizationId,
-    });
+    const assets =
+      await assetRepository.findByIdsAndOrganization(
+        data.affectedAssets,
+        data.organizationId
+      );
 
     if (
       assets.length !== data.affectedAssets.length
@@ -118,15 +122,19 @@ export const createChange = async (
     );
   }
 
-  return Change.create({
+  return changeRepository.create({
     changeId: data.changeId,
     title: data.title,
     description: data.description,
     type: data.type || "Normal",
     risk: data.risk || "Medium",
     status: "Draft",
-    requestedBy: data.requestedBy,
-    organizationId: data.organizationId,
+    requestedBy: new mongoose.Types.ObjectId(
+      data.requestedBy
+    ),
+    organizationId: new mongoose.Types.ObjectId(
+      data.organizationId
+    ),
     affectedAssets,
     plannedStartAt: data.plannedStartAt,
     plannedEndAt: data.plannedEndAt,
@@ -141,32 +149,9 @@ export const createChange = async (
 export const getChangesByOrganization = async (
   organizationId: string
 ) => {
-  return Change.find({
-    organizationId,
-  })
-    .populate(
-      "requestedBy",
-      "name email role"
-    )
-    .populate(
-      "assignedTo",
-      "name email role"
-    )
-    .populate(
-      "approvedBy",
-      "name email role"
-    )
-    .populate(
-      "rejectedBy",
-      "name email role"
-    )
-    .populate(
-      "affectedAssets",
-      "assetId name category status"
-    )
-    .sort({
-      createdAt: -1,
-    });
+  return changeRepository.findAllByOrganization(
+    organizationId
+  );
 };
 
 // ==========================================
@@ -177,30 +162,14 @@ export const getChangeById = async (
   id: string,
   organizationId: string
 ) => {
-  return Change.findOne({
-    _id: id,
-    organizationId,
-  })
-    .populate(
-      "requestedBy",
-      "name email role"
-    )
-    .populate(
-      "assignedTo",
-      "name email role"
-    )
-    .populate(
-      "approvedBy",
-      "name email role"
-    )
-    .populate(
-      "rejectedBy",
-      "name email role"
-    )
-    .populate(
-      "affectedAssets",
-      "assetId name category status"
-    );
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return null;
+  }
+
+  return changeRepository.findByIdAndOrganization(
+    id,
+    organizationId
+  );
 };
 
 // ==========================================
@@ -213,22 +182,19 @@ export const updateChange = async (
   userId: string,
   data: UpdateChangeData
 ) => {
-  const change = await Change.findOne({
-    _id: id,
-    organizationId,
-  });
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return null;
+  }
+
+  const change =
+    await changeRepository.findOne({
+      _id: id,
+      organizationId,
+    });
 
   if (!change) {
     return null;
   }
-
-  const updateData: any = {
-    ...data,
-  };
-
-  // ==========================================
-  // NORMALIZE CURRENT STATUS
-  // ==========================================
 
   const currentStatus = String(
     change.status
@@ -238,20 +204,35 @@ export const updateChange = async (
     ? String(data.status).trim()
     : undefined;
 
+  const updateData: Record<string, any> = {
+    ...data,
+  };
+
   if (requestedStatus) {
     updateData.status = requestedStatus;
   }
 
-  // ------------------------------------------
+  // ==========================================
   // ASSIGNMENT VALIDATION
-  // ------------------------------------------
+  // ==========================================
 
   if (data.assignedTo) {
-    const employee = await AuthUser.findOne({
-      _id: data.assignedTo,
-      organizationId,
-      isActive: true,
-    });
+    if (
+      !mongoose.Types.ObjectId.isValid(
+        data.assignedTo
+      )
+    ) {
+      throw new Error(
+        "Invalid assigned user ID"
+      );
+    }
+
+    const employee =
+      await authRepository.findOne({
+        _id: data.assignedTo,
+        organizationId,
+        isActive: true,
+      });
 
     if (!employee) {
       throw new Error(
@@ -268,17 +249,16 @@ export const updateChange = async (
     updateData.assignedTo = employee._id;
   }
 
-  // ------------------------------------------
+  // ==========================================
   // AFFECTED ASSET VALIDATION
-  // ------------------------------------------
+  // ==========================================
 
   if (data.affectedAssets) {
-    const assets = await Asset.find({
-      _id: {
-        $in: data.affectedAssets,
-      },
-      organizationId,
-    });
+    const assets =
+      await assetRepository.findByIdsAndOrganization(
+        data.affectedAssets,
+        organizationId
+      );
 
     if (
       assets.length !== data.affectedAssets.length
@@ -295,9 +275,9 @@ export const updateChange = async (
       );
   }
 
-  // ------------------------------------------
+  // ==========================================
   // SCHEDULE VALIDATION
-  // ------------------------------------------
+  // ==========================================
 
   const startDate =
     data.plannedStartAt ||
@@ -322,7 +302,9 @@ export const updateChange = async (
   // ==========================================
 
   if (requestedStatus === "Approved") {
-    updateData.approvedBy = userId;
+    updateData.approvedBy =
+      new mongoose.Types.ObjectId(userId);
+
     updateData.approvedAt = new Date();
   }
 
@@ -337,7 +319,9 @@ export const updateChange = async (
       );
     }
 
-    updateData.rejectedBy = userId;
+    updateData.rejectedBy =
+      new mongoose.Types.ObjectId(userId);
+
     updateData.rejectedAt = new Date();
   }
 
@@ -413,37 +397,11 @@ export const updateChange = async (
   // UPDATE DATABASE
   // ==========================================
 
-  return Change.findOneAndUpdate(
-    {
-      _id: id,
-      organizationId,
-    },
-    updateData,
-    {
-      new: true,
-      runValidators: true,
-    }
-  )
-    .populate(
-      "requestedBy",
-      "name email role"
-    )
-    .populate(
-      "assignedTo",
-      "name email role"
-    )
-    .populate(
-      "approvedBy",
-      "name email role"
-    )
-    .populate(
-      "rejectedBy",
-      "name email role"
-    )
-    .populate(
-      "affectedAssets",
-      "assetId name category status"
-    );
+  return changeRepository.updateByIdAndOrganization(
+    id,
+    organizationId,
+    updateData
+  );
 };
 
 // ==========================================
@@ -454,8 +412,12 @@ export const deleteChange = async (
   id: string,
   organizationId: string
 ) => {
-  return Change.findOneAndDelete({
-    _id: id,
-    organizationId,
-  });
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return null;
+  }
+
+  return changeRepository.deleteByIdAndOrganization(
+    id,
+    organizationId
+  );
 };

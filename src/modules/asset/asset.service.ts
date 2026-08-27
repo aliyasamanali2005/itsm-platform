@@ -1,5 +1,6 @@
-import Asset from "./asset.model";
-import AuthUser from "../auth/auth.model";
+import mongoose from "mongoose";
+import { authRepository } from "../auth/auth.repository";
+import { assetRepository } from "./asset.repository";
 
 // ==========================================
 // TYPES
@@ -26,13 +27,31 @@ interface UpdateAssetData {
 }
 
 // ==========================================
+// HELPERS
+// ==========================================
+
+const validateObjectId = (
+  id: string,
+  fieldName: string
+): void => {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    throw new Error(`Invalid ${fieldName}`);
+  }
+};
+
+// ==========================================
 // CREATE ASSET
 // ==========================================
 
 export const createAsset = async (
   data: CreateAssetData
 ) => {
-  const existingAsset = await Asset.findOne({
+  validateObjectId(
+    data.organizationId,
+    "organization ID"
+  );
+
+  const existingAsset = await assetRepository.findOne({
     assetId: data.assetId,
     organizationId: data.organizationId,
   });
@@ -43,7 +62,7 @@ export const createAsset = async (
     );
   }
 
-  return Asset.create({
+  return assetRepository.create({
     assetId: data.assetId,
     name: data.name,
     category: data.category,
@@ -51,7 +70,9 @@ export const createAsset = async (
     status: data.status || "Available",
     purchaseDate: data.purchaseDate,
     purchasePrice: data.purchasePrice,
-    organizationId: data.organizationId,
+    organizationId: new mongoose.Types.ObjectId(
+      data.organizationId
+    ),
   });
 };
 
@@ -62,11 +83,14 @@ export const createAsset = async (
 export const getAssetsByOrganization = async (
   organizationId: string
 ) => {
-  return Asset.find({
+  validateObjectId(
     organizationId,
-  })
-    .populate("assignedTo", "name email role")
-    .sort({ createdAt: -1 });
+    "organization ID"
+  );
+
+  return assetRepository.findAllByOrganization(
+    organizationId
+  );
 };
 
 // ==========================================
@@ -77,12 +101,16 @@ export const getAssetById = async (
   id: string,
   organizationId: string
 ) => {
-  return Asset.findOne({
-    _id: id,
+  validateObjectId(id, "asset ID");
+
+  validateObjectId(
     organizationId,
-  }).populate(
-    "assignedTo",
-    "name email role"
+    "organization ID"
+  );
+
+  return assetRepository.findByIdAndOrganization(
+    id,
+    organizationId
   );
 };
 
@@ -95,19 +123,17 @@ export const updateAsset = async (
   organizationId: string,
   data: UpdateAssetData
 ) => {
-  return Asset.findOneAndUpdate(
-    {
-      _id: id,
-      organizationId,
-    },
-    data,
-    {
-      new: true,
-      runValidators: true,
-    }
-  ).populate(
-    "assignedTo",
-    "name email role"
+  validateObjectId(id, "asset ID");
+
+  validateObjectId(
+    organizationId,
+    "organization ID"
+  );
+
+  return assetRepository.updateByIdAndOrganization(
+    id,
+    organizationId,
+    data
   );
 };
 
@@ -119,10 +145,17 @@ export const deleteAsset = async (
   id: string,
   organizationId: string
 ) => {
-  return Asset.findOneAndDelete({
-    _id: id,
+  validateObjectId(id, "asset ID");
+
+  validateObjectId(
     organizationId,
-  });
+    "organization ID"
+  );
+
+  return assetRepository.deleteByIdAndOrganization(
+    id,
+    organizationId
+  );
 };
 
 // ==========================================
@@ -134,8 +167,20 @@ export const assignAsset = async (
   employeeId: string,
   organizationId: string
 ) => {
-  // Find asset inside the current organization
-  const asset = await Asset.findOne({
+  validateObjectId(assetId, "asset ID");
+
+  validateObjectId(employeeId, "employee ID");
+
+  validateObjectId(
+    organizationId,
+    "organization ID"
+  );
+
+  // ------------------------------------------
+  // Find asset in current organization
+  // ------------------------------------------
+
+  const asset = await assetRepository.findOne({
     _id: assetId,
     organizationId,
   });
@@ -144,15 +189,22 @@ export const assignAsset = async (
     throw new Error("Asset not found");
   }
 
+  // ------------------------------------------
   // Asset must be available
+  // ------------------------------------------
+
   if (asset.status !== "Available") {
     throw new Error(
       `Asset cannot be assigned because its status is ${asset.status}`
     );
   }
 
-  // Find employee inside the same organization
-  const employee = await AuthUser.findOne({
+  // ------------------------------------------
+  // Find active employee
+  // in the same organization
+  // ------------------------------------------
+
+  const employee = await authRepository.findOne({
     _id: employeeId,
     organizationId,
     role: "employee",
@@ -165,15 +217,13 @@ export const assignAsset = async (
     );
   }
 
-  // Assign asset
-  asset.assignedTo = employee._id;
-  asset.status = "Assigned";
+  // ------------------------------------------
+  // Assign asset through repository
+  // ------------------------------------------
 
-  await asset.save();
-
-  return Asset.findById(asset._id).populate(
-    "assignedTo",
-    "name email role"
+  return assetRepository.assign(
+    asset._id.toString(),
+    employee._id.toString()
   );
 };
 
@@ -185,7 +235,18 @@ export const unassignAsset = async (
   assetId: string,
   organizationId: string
 ) => {
-  const asset = await Asset.findOne({
+  validateObjectId(assetId, "asset ID");
+
+  validateObjectId(
+    organizationId,
+    "organization ID"
+  );
+
+  // ------------------------------------------
+  // Find asset in current organization
+  // ------------------------------------------
+
+  const asset = await assetRepository.findOne({
     _id: assetId,
     organizationId,
   });
@@ -194,18 +255,21 @@ export const unassignAsset = async (
     throw new Error("Asset not found");
   }
 
+  // ------------------------------------------
+  // Asset must currently be assigned
+  // ------------------------------------------
+
   if (!asset.assignedTo) {
-    throw new Error("Asset is not currently assigned");
+    throw new Error(
+      "Asset is not currently assigned"
+    );
   }
 
-  // Remove employee assignment
-  asset.assignedTo = undefined;
-  asset.status = "Available";
+  // ------------------------------------------
+  // Unassign asset through repository
+  // ------------------------------------------
 
-  await asset.save();
-
-  return Asset.findById(asset._id).populate(
-    "assignedTo",
-    "name email role"
+  return assetRepository.unassign(
+    asset._id.toString()
   );
 };

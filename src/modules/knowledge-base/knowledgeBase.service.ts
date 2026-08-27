@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-import KnowledgeBase from "./knowledgeBase.model";
+import { knowledgeBaseRepository } from "./knowledgeBase.repository";
 
 // ==========================================
 // CREATE KNOWLEDGE BASE ARTICLE
@@ -14,7 +14,7 @@ export const createKnowledgeBase = async (
   createdBy: string,
   isPublished: boolean = false
 ) => {
-  return await KnowledgeBase.create({
+  return knowledgeBaseRepository.create({
     title,
     content,
     category,
@@ -38,13 +38,9 @@ export const createKnowledgeBase = async (
 export const getKnowledgeBases = async (
   organizationId: string
 ) => {
-  return await KnowledgeBase.find({
-    organizationId: new mongoose.Types.ObjectId(
-      organizationId
-    ),
-  }).sort({
-    createdAt: -1,
-  });
+  return knowledgeBaseRepository.findAllByOrganization(
+    organizationId
+  );
 };
 
 // ==========================================
@@ -64,15 +60,13 @@ export const getKnowledgeBaseById = async (
   }
 
   // ------------------------------------------
-  // FIND ARTICLE
+  // FIND ARTICLE THROUGH REPOSITORY
   // ------------------------------------------
 
-  return await KnowledgeBase.findOne({
-    _id: id,
-    organizationId: new mongoose.Types.ObjectId(
-      organizationId
-    ),
-  });
+  return knowledgeBaseRepository.findByIdAndOrganization(
+    id,
+    organizationId
+  );
 };
 
 // ==========================================
@@ -98,23 +92,13 @@ export const updateKnowledgeBase = async (
   }
 
   // ------------------------------------------
-  // UPDATE ARTICLE
+  // UPDATE THROUGH REPOSITORY
   // ------------------------------------------
 
-  return await KnowledgeBase.findOneAndUpdate(
-    {
-      _id: id,
-      organizationId: new mongoose.Types.ObjectId(
-        organizationId
-      ),
-    },
-
-    updateData,
-
-    {
-      new: true,
-      runValidators: true,
-    }
+  return knowledgeBaseRepository.updateByIdAndOrganization(
+    id,
+    organizationId,
+    updateData
   );
 };
 
@@ -135,13 +119,11 @@ export const deleteKnowledgeBase = async (
   }
 
   // ------------------------------------------
-  // DELETE ARTICLE
+  // DELETE THROUGH REPOSITORY
   // ------------------------------------------
 
-  return await KnowledgeBase.findOneAndDelete({
-    _id: id,
-    organizationId: new mongoose.Types.ObjectId(
-      organizationId
-    ),
-  });
+  return knowledgeBaseRepository.deleteByIdAndOrganization(
+    id,
+    organizationId
+  );
 };

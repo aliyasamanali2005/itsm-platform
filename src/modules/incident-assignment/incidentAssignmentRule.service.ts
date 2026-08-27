@@ -1,12 +1,12 @@
 import mongoose from "mongoose";
 
-import IncidentAssignmentRule, {
+import {
   IncidentPriority,
   IncidentSeverity,
   IIncidentAssignmentRule,
 } from "./incidentAssignmentRule.model";
 
-import AuthUser from "../auth/auth.model";
+import { incidentAssignmentRuleRepository } from "./incidentAssignmentRule.repository";
 
 // ==========================================
 // TYPES
@@ -41,6 +41,7 @@ export const createAssignmentRule =
   async (
     data: CreateAssignmentRuleData
   ): Promise<IIncidentAssignmentRule> => {
+
     // --------------------------------------
     // Validate rule order
     // --------------------------------------
@@ -87,10 +88,10 @@ export const createAssignmentRule =
     // --------------------------------------
 
     const targetUser =
-      await AuthUser.findOne({
-        _id: data.targetUser,
-        organizationId: data.organizationId,
-      });
+      await incidentAssignmentRuleRepository.findTargetUserByOrganization(
+        data.targetUser,
+        data.organizationId
+      );
 
     if (!targetUser) {
       throw new Error(
@@ -103,11 +104,10 @@ export const createAssignmentRule =
     // --------------------------------------
 
     const existingOrder =
-      await IncidentAssignmentRule.findOne({
-        organizationId:
-          data.organizationId,
-        ruleOrder: data.ruleOrder,
-      });
+      await incidentAssignmentRuleRepository.findByOrganizationAndRuleOrder(
+        data.organizationId,
+        data.ruleOrder
+      );
 
     if (existingOrder) {
       throw new Error(
@@ -120,11 +120,10 @@ export const createAssignmentRule =
     // --------------------------------------
 
     const existingName =
-      await IncidentAssignmentRule.findOne({
-        organizationId:
-          data.organizationId,
-        name: data.name.trim(),
-      });
+      await incidentAssignmentRuleRepository.findByOrganizationAndName(
+        data.organizationId,
+        data.name.trim()
+      );
 
     if (existingName) {
       throw new Error(
@@ -137,7 +136,7 @@ export const createAssignmentRule =
     // --------------------------------------
 
     const rule =
-      await IncidentAssignmentRule.create({
+      await incidentAssignmentRuleRepository.create({
         name: data.name.trim(),
 
         description:
@@ -148,20 +147,28 @@ export const createAssignmentRule =
         incidentPriority:
           data.incidentPriority,
 
-        severity: data.severity,
+        severity:
+          data.severity,
 
-        targetUser: data.targetUser,
+        targetUser:
+          new mongoose.Types.ObjectId(
+            data.targetUser
+          ),
 
         organizationId:
-          data.organizationId,
+          new mongoose.Types.ObjectId(
+            data.organizationId
+          ),
 
         createdBy:
-          data.createdBy,
+          new mongoose.Types.ObjectId(
+            data.createdBy
+          ),
 
         isActive: true,
       });
 
-    return rule;
+    return rule as IIncidentAssignmentRule;
   };
 
 // ==========================================
@@ -172,6 +179,7 @@ export const getAssignmentRules =
   async (
     organizationId: string
   ) => {
+
     if (
       !mongoose.Types.ObjectId.isValid(
         organizationId
@@ -182,20 +190,9 @@ export const getAssignmentRules =
       );
     }
 
-    return IncidentAssignmentRule.find({
-      organizationId,
-    })
-      .populate(
-        "targetUser",
-        "name email role"
-      )
-      .populate(
-        "createdBy",
-        "name email role"
-      )
-      .sort({
-        ruleOrder: 1,
-      });
+    return incidentAssignmentRuleRepository.findAllByOrganization(
+      organizationId
+    );
   };
 
 // ==========================================
@@ -207,6 +204,7 @@ export const getAssignmentRuleById =
     ruleId: string,
     organizationId: string
   ) => {
+
     if (
       !mongoose.Types.ObjectId.isValid(
         ruleId
@@ -218,18 +216,10 @@ export const getAssignmentRuleById =
     }
 
     const rule =
-      await IncidentAssignmentRule.findOne({
-        _id: ruleId,
-        organizationId,
-      })
-        .populate(
-          "targetUser",
-          "name email role"
-        )
-        .populate(
-          "createdBy",
-          "name email role"
-        );
+      await incidentAssignmentRuleRepository.findByIdAndOrganization(
+        ruleId,
+        organizationId
+      );
 
     if (!rule) {
       throw new Error(
@@ -250,6 +240,11 @@ export const updateAssignmentRule =
     organizationId: string,
     data: UpdateAssignmentRuleData
   ) => {
+
+    // --------------------------------------
+    // Validate ID
+    // --------------------------------------
+
     if (
       !mongoose.Types.ObjectId.isValid(
         ruleId
@@ -260,11 +255,15 @@ export const updateAssignmentRule =
       );
     }
 
+    // --------------------------------------
+    // Find document
+    // --------------------------------------
+
     const rule =
-      await IncidentAssignmentRule.findOne({
-        _id: ruleId,
-        organizationId,
-      });
+      await incidentAssignmentRuleRepository.findDocumentByIdAndOrganization(
+        ruleId,
+        organizationId
+      );
 
     if (!rule) {
       throw new Error(
@@ -279,6 +278,7 @@ export const updateAssignmentRule =
     if (
       data.ruleOrder !== undefined
     ) {
+
       if (
         !Number.isInteger(
           data.ruleOrder
@@ -291,15 +291,10 @@ export const updateAssignmentRule =
       }
 
       const duplicateOrder =
-        await IncidentAssignmentRule.findOne(
-          {
-            organizationId,
-            ruleOrder:
-              data.ruleOrder,
-            _id: {
-              $ne: ruleId,
-            },
-          }
+        await incidentAssignmentRuleRepository.findDuplicateRuleOrder(
+          organizationId,
+          data.ruleOrder,
+          ruleId
         );
 
       if (duplicateOrder) {
@@ -317,6 +312,7 @@ export const updateAssignmentRule =
     // --------------------------------------
 
     if (data.name !== undefined) {
+
       const name =
         data.name.trim();
 
@@ -327,14 +323,10 @@ export const updateAssignmentRule =
       }
 
       const duplicateName =
-        await IncidentAssignmentRule.findOne(
-          {
-            organizationId,
-            name,
-            _id: {
-              $ne: ruleId,
-            },
-          }
+        await incidentAssignmentRuleRepository.findDuplicateName(
+          organizationId,
+          name,
+          ruleId
         );
 
       if (duplicateName) {
@@ -387,6 +379,7 @@ export const updateAssignmentRule =
     if (
       data.targetUser !== undefined
     ) {
+
       if (
         !mongoose.Types.ObjectId.isValid(
           data.targetUser
@@ -398,10 +391,10 @@ export const updateAssignmentRule =
       }
 
       const targetUser =
-        await AuthUser.findOne({
-          _id: data.targetUser,
-          organizationId,
-        });
+        await incidentAssignmentRuleRepository.findTargetUserByOrganization(
+          data.targetUser,
+          organizationId
+        );
 
       if (!targetUser) {
         throw new Error(
@@ -426,19 +419,21 @@ export const updateAssignmentRule =
         data.isActive;
     }
 
-    await rule.save();
+    // --------------------------------------
+    // Save
+    // --------------------------------------
 
-    return IncidentAssignmentRule.findById(
-      rule._id
-    )
-      .populate(
-        "targetUser",
-        "name email role"
-      )
-      .populate(
-        "createdBy",
-        "name email role"
-      );
+    await incidentAssignmentRuleRepository.save(
+      rule
+    );
+
+    // --------------------------------------
+    // Return populated document
+    // --------------------------------------
+
+    return incidentAssignmentRuleRepository.findById(
+      rule._id.toString()
+    );
   };
 
 // ==========================================
@@ -450,6 +445,7 @@ export const deleteAssignmentRule =
     ruleId: string,
     organizationId: string
   ) => {
+
     if (
       !mongoose.Types.ObjectId.isValid(
         ruleId
@@ -461,11 +457,9 @@ export const deleteAssignmentRule =
     }
 
     const rule =
-      await IncidentAssignmentRule.findOneAndDelete(
-        {
-          _id: ruleId,
-          organizationId,
-        }
+      await incidentAssignmentRuleRepository.deleteByIdAndOrganization(
+        ruleId,
+        organizationId
       );
 
     if (!rule) {
@@ -487,6 +481,7 @@ export const getApplicableAssignmentRules =
     incidentPriority?: IncidentPriority,
     severity?: IncidentSeverity
   ) => {
+
     const query: any = {
       organizationId,
       isActive: true,
@@ -500,6 +495,7 @@ export const getApplicableAssignmentRules =
     // --------------------------------------
 
     if (incidentPriority) {
+
       query.$or = [
         {
           incidentPriority,
@@ -523,6 +519,7 @@ export const getApplicableAssignmentRules =
     // --------------------------------------
 
     if (severity) {
+
       query.$and = [
         ...(query.$and || []),
         {
@@ -543,16 +540,9 @@ export const getApplicableAssignmentRules =
       ];
     }
 
-    return IncidentAssignmentRule.find(
+    return incidentAssignmentRuleRepository.findApplicableRules(
       query
-    )
-      .populate(
-        "targetUser",
-        "name email role organizationId"
-      )
-      .sort({
-        ruleOrder: 1,
-      });
+    );
   };
 
 // ==========================================
@@ -565,6 +555,7 @@ export const findMatchingAssignmentRule =
     incidentPriority?: IncidentPriority,
     severity?: IncidentSeverity
   ) => {
+
     const rules =
       await getApplicableAssignmentRules(
         organizationId,

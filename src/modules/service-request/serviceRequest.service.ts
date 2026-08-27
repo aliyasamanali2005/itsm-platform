@@ -1,3 +1,5 @@
+import mongoose from "mongoose";
+
 import ServiceRequest, {
   ServiceRequestPriority,
   ServiceRequestStatus,
@@ -72,6 +74,19 @@ export const createServiceRequest = async (
   }
 
   // ------------------------------------------
+  // CONVERT STRING IDS TO OBJECT IDS
+  // ------------------------------------------
+
+  const requestedBy = new mongoose.Types.ObjectId(
+    data.requestedBy
+  );
+
+  const organizationId =
+    new mongoose.Types.ObjectId(
+      data.organizationId
+    );
+
+  // ------------------------------------------
   // CREATE
   // ------------------------------------------
 
@@ -82,8 +97,10 @@ export const createServiceRequest = async (
     type: data.type,
     priority: data.priority || "Medium",
     status: "Pending",
-    requestedBy: data.requestedBy,
-    organizationId: data.organizationId,
+
+    // ObjectId values
+    requestedBy,
+    organizationId,
   });
 };
 
@@ -158,7 +175,7 @@ export const updateServiceRequest = async (
     return null;
   }
 
-  const updateData: any = {
+  const updateData: Record<string, any> = {
     ...data,
   };
 
@@ -197,9 +214,7 @@ export const updateServiceRequest = async (
   // APPROVE REQUEST
   // ==========================================
 
-  if (
-    requestedStatus === "Approved"
-  ) {
+  if (requestedStatus === "Approved") {
     if (currentStatus !== "Pending") {
       throw new Error(
         `Only pending service requests can be approved. Current status: ${currentStatus}`
@@ -212,6 +227,11 @@ export const updateServiceRequest = async (
       );
     }
 
+    updateData.approvedBy =
+      new mongoose.Types.ObjectId(
+        data.approvedBy
+      );
+
     updateData.approvedAt =
       data.approvedAt || new Date();
   }
@@ -220,9 +240,7 @@ export const updateServiceRequest = async (
   // REJECT REQUEST
   // ==========================================
 
-  if (
-    requestedStatus === "Rejected"
-  ) {
+  if (requestedStatus === "Rejected") {
     if (currentStatus !== "Pending") {
       throw new Error(
         `Only pending service requests can be rejected. Current status: ${currentStatus}`
@@ -235,19 +253,16 @@ export const updateServiceRequest = async (
       );
     }
 
-    updateData.rejectedAt = new Date();
+    updateData.rejectedAt =
+      new Date();
   }
 
   // ==========================================
   // START REQUEST
   // ==========================================
 
-  if (
-    requestedStatus === "In Progress"
-  ) {
-    if (
-      currentStatus !== "Approved"
-    ) {
+  if (requestedStatus === "In Progress") {
+    if (currentStatus !== "Approved") {
       throw new Error(
         `Only approved service requests can be started. Current status: ${currentStatus}`
       );
@@ -258,18 +273,18 @@ export const updateServiceRequest = async (
         "Service request must be assigned before work can begin"
       );
     }
+
+    updateData.startedAt =
+      existingRequest.startedAt ||
+      new Date();
   }
 
   // ==========================================
   // COMPLETE REQUEST
   // ==========================================
 
-  if (
-    requestedStatus === "Completed"
-  ) {
-    if (
-      currentStatus !== "In Progress"
-    ) {
+  if (requestedStatus === "Completed") {
+    if (currentStatus !== "In Progress") {
       throw new Error(
         "Only service requests in progress can be completed"
       );
@@ -289,9 +304,7 @@ export const updateServiceRequest = async (
   // CANCEL REQUEST
   // ==========================================
 
-  if (
-    requestedStatus === "Cancelled"
-  ) {
+  if (requestedStatus === "Cancelled") {
     if (
       currentStatus === "Completed" ||
       currentStatus === "Rejected"
@@ -300,6 +313,9 @@ export const updateServiceRequest = async (
         "Completed or rejected service requests cannot be cancelled"
       );
     }
+
+    updateData.cancelledAt =
+      new Date();
   }
 
   // ==========================================

@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
-import ServiceCatalog from "./serviceCatalog.model";
+
+import { serviceCatalogRepository } from "./serviceCatalog.repository";
 
 // ==========================================
 // CREATE SERVICE
@@ -13,12 +14,16 @@ export const createServiceCatalog = async (
   createdBy: string,
   isActive: boolean = true
 ) => {
-  return await ServiceCatalog.create({
+  return serviceCatalogRepository.create({
     name,
     description,
     category,
-    organizationId: new mongoose.Types.ObjectId(organizationId),
-    createdBy: new mongoose.Types.ObjectId(createdBy),
+    organizationId: new mongoose.Types.ObjectId(
+      organizationId
+    ),
+    createdBy: new mongoose.Types.ObjectId(
+      createdBy
+    ),
     isActive,
   });
 };
@@ -30,11 +35,9 @@ export const createServiceCatalog = async (
 export const getServiceCatalogs = async (
   organizationId: string
 ) => {
-  return await ServiceCatalog.find({
-    organizationId: new mongoose.Types.ObjectId(organizationId),
-  })
-    .populate("createdBy", "name email")
-    .sort({ createdAt: -1 });
+  return serviceCatalogRepository.findAllByOrganization(
+    organizationId
+  );
 };
 
 // ==========================================
@@ -45,10 +48,10 @@ export const getServiceCatalogById = async (
   id: string,
   organizationId: string
 ) => {
-  return await ServiceCatalog.findOne({
-    _id: id,
-    organizationId: new mongoose.Types.ObjectId(organizationId),
-  }).populate("createdBy", "name email");
+  return serviceCatalogRepository.findByIdAndOrganization(
+    id,
+    organizationId
+  );
 };
 
 // ==========================================
@@ -65,17 +68,11 @@ export const updateServiceCatalog = async (
     isActive?: boolean;
   }
 ) => {
-  return await ServiceCatalog.findOneAndUpdate(
-    {
-      _id: id,
-      organizationId: new mongoose.Types.ObjectId(organizationId),
-    },
-    updateData,
-    {
-      new: true,
-      runValidators: true,
-    }
-  ).populate("createdBy", "name email");
+  return serviceCatalogRepository.updateByIdAndOrganization(
+    id,
+    organizationId,
+    updateData
+  );
 };
 
 // ==========================================
@@ -86,8 +83,8 @@ export const deleteServiceCatalog = async (
   id: string,
   organizationId: string
 ) => {
-  return await ServiceCatalog.findOneAndDelete({
-    _id: id,
-    organizationId: new mongoose.Types.ObjectId(organizationId),
-  });
+  return serviceCatalogRepository.deleteByIdAndOrganization(
+    id,
+    organizationId
+  );
 };

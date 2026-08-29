@@ -1,10 +1,12 @@
 import mongoose from "mongoose";
 
-import IncidentEscalationPolicy, {
+import {
   EscalationLevel,
   EscalationTargetType,
   IncidentPriority,
 } from "./incidentEscalation.model";
+
+import * as escalationRepository from "./incidentEscalation.repository";
 
 // ==========================================
 // TYPES
@@ -43,6 +45,62 @@ const isValidObjectId = (id?: string) => {
   return !!id && mongoose.Types.ObjectId.isValid(id);
 };
 
+/**
+ * Safely extracts an ObjectId string from:
+ *
+ * 1. A normal ObjectId
+ * 2. A string
+ * 3. A populated object containing _id
+ *
+ * This is important because repository methods may populate
+ * targetUser / targetTeam.
+ */
+const extractObjectId = (
+  value: unknown
+): string | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  // Already an ObjectId
+  if (value instanceof mongoose.Types.ObjectId) {
+    return value.toString();
+  }
+
+  // Normal string ObjectId
+  if (typeof value === "string") {
+    return value;
+  }
+
+  // Populated document/object
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "_id" in value
+  ) {
+    const objectId = (value as { _id?: unknown })._id;
+
+    if (
+      objectId instanceof mongoose.Types.ObjectId
+    ) {
+      return objectId.toString();
+    }
+
+    if (typeof objectId === "string") {
+      return objectId;
+    }
+
+    if (objectId) {
+      return String(objectId);
+    }
+  }
+
+  return undefined;
+};
+
+/**
+ * Validate target according to targetType.
+ */
 const validateTarget = (
   targetType: EscalationTargetType,
   targetUser?: string,
@@ -73,6 +131,9 @@ const validateTarget = (
   }
 };
 
+/**
+ * Validate escalation threshold.
+ */
 const validateThreshold = (
   thresholdMinutes: number
 ) => {
@@ -93,8 +154,20 @@ const validateThreshold = (
 export const createEscalationPolicy = async (
   data: CreatePolicyData
 ) => {
+  // ------------------------------------------
+  // BASIC VALIDATION
+  // ------------------------------------------
+
   if (!data.name?.trim()) {
     throw new Error("Policy name is required");
+  }
+
+  if (!isValidObjectId(data.organizationId)) {
+    throw new Error("Invalid organization ID");
+  }
+
+  if (!isValidObjectId(data.createdBy)) {
+    throw new Error("Invalid createdBy ID");
   }
 
   validateThreshold(data.thresholdMinutes);
@@ -110,10 +183,10 @@ export const createEscalationPolicy = async (
   // ------------------------------------------
 
   const existing =
-    await IncidentEscalationPolicy.findOne({
-      name: data.name.trim(),
-      organizationId: data.organizationId,
-    });
+    await escalationRepository.findByName(
+      data.name.trim(),
+      data.organizationId
+    );
 
   if (existing) {
     throw new Error(
@@ -125,14 +198,27 @@ export const createEscalationPolicy = async (
   // CREATE
   // ------------------------------------------
 
-  return IncidentEscalationPolicy.create({
+  return escalationRepository.create({
     name: data.name.trim(),
-    description: data.description?.trim(),
-    organizationId: data.organizationId,
+
+    description:
+      data.description?.trim() || undefined,
+
+    organizationId:
+      new mongoose.Types.ObjectId(
+        data.organizationId
+      ),
+
     priority: data.priority,
-    escalationLevel: data.escalationLevel,
-    thresholdMinutes: data.thresholdMinutes,
-    targetType: data.targetType,
+
+    escalationLevel:
+      data.escalationLevel,
+
+    thresholdMinutes:
+      data.thresholdMinutes,
+
+    targetType:
+      data.targetType,
 
     targetUser:
       data.targetType === "User"
@@ -148,7 +234,10 @@ export const createEscalationPolicy = async (
           )
         : undefined,
 
-    createdBy: data.createdBy,
+    createdBy:
+      new mongoose.Types.ObjectId(
+        data.createdBy
+      ),
   });
 };
 
@@ -159,26 +248,13 @@ export const createEscalationPolicy = async (
 export const getEscalationPolicies = async (
   organizationId: string
 ) => {
-  return IncidentEscalationPolicy.find({
-    organizationId,
-  })
-    .populate(
-      "createdBy",
-      "name email role"
-    )
-    .populate(
-      "targetUser",
-      "name email role"
-    )
-    .populate(
-      "targetTeam",
-      "name description"
-    )
-    .sort({
-      priority: 1,
-      thresholdMinutes: 1,
-      escalationLevel: 1,
-    });
+  if (!isValidObjectId(organizationId)) {
+    throw new Error("Invalid organization ID");
+  }
+
+  return escalationRepository.findAll(
+    organizationId
+  );
 };
 
 // ==========================================
@@ -189,29 +265,21 @@ export const getEscalationPolicyById = async (
   policyId: string,
   organizationId: string
 ) => {
-  if (!mongoose.Types.ObjectId.isValid(policyId)) {
+  if (!isValidObjectId(policyId)) {
     throw new Error(
       "Invalid escalation policy ID"
     );
   }
 
+  if (!isValidObjectId(organizationId)) {
+    throw new Error("Invalid organization ID");
+  }
+
   const policy =
-    await IncidentEscalationPolicy.findOne({
-      _id: policyId,
-      organizationId,
-    })
-      .populate(
-        "createdBy",
-        "name email role"
-      )
-      .populate(
-        "targetUser",
-        "name email role"
-      )
-      .populate(
-        "targetTeam",
-        "name description"
-      );
+    await escalationRepository.findById(
+      policyId,
+      organizationId
+    );
 
   if (!policy) {
     throw new Error(
@@ -231,10 +299,18 @@ export const updateEscalationPolicy = async (
   organizationId: string,
   data: UpdatePolicyData
 ) => {
-  if (!mongoose.Types.ObjectId.isValid(policyId)) {
+  // ------------------------------------------
+  // VALIDATE IDS
+  // ------------------------------------------
+
+  if (!isValidObjectId(policyId)) {
     throw new Error(
       "Invalid escalation policy ID"
     );
+  }
+
+  if (!isValidObjectId(organizationId)) {
+    throw new Error("Invalid organization ID");
   }
 
   // ------------------------------------------
@@ -242,10 +318,10 @@ export const updateEscalationPolicy = async (
   // ------------------------------------------
 
   const existing =
-    await IncidentEscalationPolicy.findOne({
-      _id: policyId,
-      organizationId,
-    });
+    await escalationRepository.findById(
+      policyId,
+      organizationId
+    );
 
   if (!existing) {
     throw new Error(
@@ -258,15 +334,37 @@ export const updateEscalationPolicy = async (
   // ------------------------------------------
 
   const targetType =
-    data.targetType ?? existing.targetType;
+    data.targetType ??
+    existing.targetType;
+
+  /**
+   * IMPORTANT:
+   *
+   * targetUser / targetTeam can be either:
+   *
+   * - ObjectId
+   * - string
+   * - populated object
+   *
+   * extractObjectId() handles all cases.
+   */
+  const existingTargetUser =
+    extractObjectId(
+      existing.targetUser
+    );
+
+  const existingTargetTeam =
+    extractObjectId(
+      existing.targetTeam
+    );
 
   const targetUser =
     data.targetUser ??
-    existing.targetUser?.toString();
+    existingTargetUser;
 
   const targetTeam =
     data.targetTeam ??
-    existing.targetTeam?.toString();
+    existingTargetTeam;
 
   const thresholdMinutes =
     data.thresholdMinutes ??
@@ -276,7 +374,9 @@ export const updateEscalationPolicy = async (
   // VALIDATION
   // ------------------------------------------
 
-  validateThreshold(thresholdMinutes);
+  validateThreshold(
+    thresholdMinutes
+  );
 
   validateTarget(
     targetType,
@@ -289,17 +389,15 @@ export const updateEscalationPolicy = async (
   // ------------------------------------------
 
   if (
-    data.name &&
+    data.name !== undefined &&
     data.name.trim() !== existing.name
   ) {
     const duplicate =
-      await IncidentEscalationPolicy.findOne({
-        name: data.name.trim(),
+      await escalationRepository.findDuplicateName(
+        data.name.trim(),
         organizationId,
-        _id: {
-          $ne: policyId,
-        },
-      });
+        policyId
+      );
 
     if (duplicate) {
       throw new Error(
@@ -313,7 +411,16 @@ export const updateEscalationPolicy = async (
   // ------------------------------------------
 
   if (data.name !== undefined) {
-    existing.name = data.name.trim();
+    const trimmedName =
+      data.name.trim();
+
+    if (!trimmedName) {
+      throw new Error(
+        "Policy name is required"
+      );
+    }
+
+    existing.name = trimmedName;
   }
 
   if (data.description !== undefined) {
@@ -322,10 +429,13 @@ export const updateEscalationPolicy = async (
   }
 
   if (data.priority !== undefined) {
-    existing.priority = data.priority;
+    existing.priority =
+      data.priority;
   }
 
-  if (data.escalationLevel !== undefined) {
+  if (
+    data.escalationLevel !== undefined
+  ) {
     existing.escalationLevel =
       data.escalationLevel;
   }
@@ -333,7 +443,8 @@ export const updateEscalationPolicy = async (
   existing.thresholdMinutes =
     thresholdMinutes;
 
-  existing.targetType = targetType;
+  existing.targetType =
+    targetType;
 
   // ------------------------------------------
   // TARGET USER / TEAM
@@ -341,16 +452,22 @@ export const updateEscalationPolicy = async (
 
   if (targetType === "User") {
     existing.targetUser =
-      new mongoose.Types.ObjectId(targetUser!);
+      new mongoose.Types.ObjectId(
+        targetUser!
+      );
 
-    existing.targetTeam = undefined;
+    existing.targetTeam =
+      undefined;
   }
 
   if (targetType === "SupportTeam") {
     existing.targetTeam =
-      new mongoose.Types.ObjectId(targetTeam!);
+      new mongoose.Types.ObjectId(
+        targetTeam!
+      );
 
-    existing.targetUser = undefined;
+    existing.targetUser =
+      undefined;
   }
 
   // ------------------------------------------
@@ -358,10 +475,17 @@ export const updateEscalationPolicy = async (
   // ------------------------------------------
 
   if (data.isActive !== undefined) {
-    existing.isActive = data.isActive;
+    existing.isActive =
+      data.isActive;
   }
 
-  return existing.save();
+  // ------------------------------------------
+  // SAVE
+  // ------------------------------------------
+
+  return escalationRepository.update(
+    existing
+  );
 };
 
 // ==========================================
@@ -372,18 +496,20 @@ export const deleteEscalationPolicy = async (
   policyId: string,
   organizationId: string
 ) => {
-  if (!mongoose.Types.ObjectId.isValid(policyId)) {
+  if (!isValidObjectId(policyId)) {
     throw new Error(
       "Invalid escalation policy ID"
     );
   }
 
+  if (!isValidObjectId(organizationId)) {
+    throw new Error("Invalid organization ID");
+  }
+
   const policy =
-    await IncidentEscalationPolicy.findOneAndDelete(
-      {
-        _id: policyId,
-        organizationId,
-      }
+    await escalationRepository.deleteById(
+      policyId,
+      organizationId
     );
 
   if (!policy) {
@@ -404,21 +530,14 @@ export const getApplicableEscalationPolicies =
     organizationId: string,
     priority: IncidentPriority
   ) => {
-    return IncidentEscalationPolicy.find({
+    if (!isValidObjectId(organizationId)) {
+      throw new Error(
+        "Invalid organization ID"
+      );
+    }
+
+    return escalationRepository.findApplicable(
       organizationId,
-      priority,
-      isActive: true,
-    })
-      .populate(
-        "targetUser",
-        "name email role"
-      )
-      .populate(
-        "targetTeam",
-        "name description"
-      )
-      .sort({
-        thresholdMinutes: 1,
-        escalationLevel: 1,
-      });
+      priority
+    );
   };

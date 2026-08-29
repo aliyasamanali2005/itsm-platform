@@ -1,13 +1,16 @@
-import { connectDB, disconnectDB } from "../src/config/db";
-
-beforeAll(async () => {
-  await connectDB();
-}, 30000);
+import { disconnectDB } from "../src/config/db";
 
 afterAll(async () => {
-  await disconnectDB();
+  try {
+    await disconnectDB();
 
-  console.log(
-    "\nJest test environment cleanup complete."
-  );
+    console.log(
+      "\nJest test environment cleanup complete."
+    );
+  } catch (error) {
+    console.error(
+      "Jest cleanup failed:",
+      error
+    );
+  }
 }, 30000);

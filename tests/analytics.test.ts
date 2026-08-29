@@ -1,6 +1,9 @@
+
 import request from "supertest";
+import mongoose from "mongoose";
 import app from "../src/app";
 import Organization from "../src/modules/organization/organization.model";
+import { connectDB } from "../src/config/db";
 
 describe("Analytics Module", () => {
   let token: string;
@@ -12,6 +15,36 @@ describe("Analytics Module", () => {
 
   beforeAll(async () => {
     const timestamp = Date.now();
+
+    // Make sure MongoDB is connected before using models
+    if (mongoose.connection.readyState !== 1) {
+      await connectDB();
+    }
+
+    // Wait until MongoDB connection is actually ready
+    if (mongoose.connection.readyState !== 1) {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(
+            new Error(
+              "MongoDB connection timeout during analytics test setup"
+            )
+          );
+        }, 30000);
+
+        mongoose.connection.once("connected", () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+
+        mongoose.connection.once("error", (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
+      });
+    }
+
+    expect(mongoose.connection.readyState).toBe(1);
 
     // ========================================
     // CREATE TEST ORGANIZATION
@@ -42,7 +75,18 @@ describe("Analytics Module", () => {
         password,
         role: "admin",
         organizationId,
-      });
+      })
+      .timeout(30000);
+
+    console.log(
+      "ANALYTICS REGISTER STATUS:",
+      registerResponse.status
+    );
+
+    console.log(
+      "ANALYTICS REGISTER RESPONSE:",
+      registerResponse.body
+    );
 
     expect(registerResponse.status).toBeLessThan(300);
 
@@ -55,7 +99,18 @@ describe("Analytics Module", () => {
       .send({
         email,
         password,
-      });
+      })
+      .timeout(30000);
+
+    console.log(
+      "ANALYTICS LOGIN STATUS:",
+      loginResponse.status
+    );
+
+    console.log(
+      "ANALYTICS LOGIN RESPONSE:",
+      loginResponse.body
+    );
 
     expect(loginResponse.status).toBe(200);
 
@@ -64,16 +119,26 @@ describe("Analytics Module", () => {
       loginResponse.body.data?.token;
 
     expect(token).toBeDefined();
-  }, 20000);
+  }, 60000);
 
   // ==========================================
   // TEST CLEANUP
   // ==========================================
 
   afterAll(async () => {
-    if (organizationId) {
-      await Organization.findByIdAndDelete(
-        organizationId
+    try {
+      if (
+        organizationId &&
+        mongoose.connection.readyState === 1
+      ) {
+        await Organization.findByIdAndDelete(
+          organizationId
+        );
+      }
+    } catch (error) {
+      console.error(
+        "Analytics cleanup error:",
+        error
       );
     }
   });
@@ -92,7 +157,18 @@ describe("Analytics Module", () => {
         .set(
           "Authorization",
           `Bearer ${token}`
-        );
+        )
+        .timeout(30000);
+
+      console.log(
+        "TECHNICIAN PERFORMANCE STATUS:",
+        response.status
+      );
+
+      console.log(
+        "TECHNICIAN PERFORMANCE RESPONSE:",
+        response.body
+      );
 
       expect(response.status).toBe(200);
 
@@ -104,7 +180,8 @@ describe("Analytics Module", () => {
       expect(
         Array.isArray(response.body.data)
       ).toBe(true);
-    }
+    },
+    40000
   );
 
   // ==========================================
@@ -121,7 +198,18 @@ describe("Analytics Module", () => {
         .set(
           "Authorization",
           `Bearer ${token}`
-        );
+        )
+        .timeout(30000);
+
+      console.log(
+        "ASSET HEALTH STATUS:",
+        response.status
+      );
+
+      console.log(
+        "ASSET HEALTH RESPONSE:",
+        response.body
+      );
 
       expect(response.status).toBe(200);
 
@@ -161,7 +249,8 @@ describe("Analytics Module", () => {
       expect(response.body.data).toHaveProperty(
         "retiredRate"
       );
-    }
+    },
+    40000
   );
 
   // ==========================================
@@ -178,7 +267,18 @@ describe("Analytics Module", () => {
         .set(
           "Authorization",
           `Bearer ${token}`
-        );
+        )
+        .timeout(30000);
+
+      console.log(
+        "CHANGE SUCCESS RATE STATUS:",
+        response.status
+      );
+
+      console.log(
+        "CHANGE SUCCESS RATE RESPONSE:",
+        response.body
+      );
 
       expect(response.status).toBe(200);
 
@@ -226,7 +326,8 @@ describe("Analytics Module", () => {
       expect(response.body.data).toHaveProperty(
         "failureRate"
       );
-    }
+    },
+    40000
   );
 
   // ==========================================
@@ -239,9 +340,11 @@ describe("Analytics Module", () => {
       const response = await request(app)
         .get(
           "/api/v1/analytics/asset-health"
-        );
+        )
+        .timeout(30000);
 
       expect(response.status).toBe(401);
-    }
+    },
+    40000
   );
 });

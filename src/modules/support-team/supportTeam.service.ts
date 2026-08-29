@@ -1,6 +1,12 @@
-import SupportTeam, {
+import mongoose from "mongoose";
+
+import {
   ISupportTeam,
 } from "./supportTeam.model";
+
+import {
+  supportTeamRepository,
+} from "./supportTeam.repository";
 
 interface CreateSupportTeamData {
   name: string;
@@ -16,10 +22,18 @@ interface CreateSupportTeamData {
 export const createSupportTeam = async (
   data: CreateSupportTeamData
 ): Promise<ISupportTeam> => {
+  const organizationId = new mongoose.Types.ObjectId(
+    data.organizationId
+  );
+
+  const members = (data.members || []).map(
+    (memberId) => new mongoose.Types.ObjectId(memberId)
+  );
+
   const existingTeam =
-    await SupportTeam.findOne({
+    await supportTeamRepository.findOne({
       name: data.name,
-      organizationId: data.organizationId,
+      organizationId,
     });
 
   if (existingTeam) {
@@ -28,15 +42,12 @@ export const createSupportTeam = async (
     );
   }
 
-  const supportTeam =
-    await SupportTeam.create({
-      name: data.name,
-      description: data.description,
-      organizationId: data.organizationId,
-      members: data.members || [],
-    });
-
-  return supportTeam;
+  return supportTeamRepository.create({
+    name: data.name,
+    description: data.description,
+    organizationId,
+    members,
+  });
 };
 
 // ==========================================
@@ -46,11 +57,9 @@ export const createSupportTeam = async (
 export const getSupportTeams = async (
   organizationId: string
 ): Promise<ISupportTeam[]> => {
-  return SupportTeam.find({
-    organizationId,
-  }).sort({
-    createdAt: -1,
-  });
+  return supportTeamRepository.findAllByOrganization(
+    organizationId
+  );
 };
 
 // ==========================================
@@ -61,10 +70,18 @@ export const getSupportTeamById = async (
   id: string,
   organizationId: string
 ): Promise<ISupportTeam | null> => {
-  return SupportTeam.findOne({
-    _id: id,
-    organizationId,
-  });
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return null;
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(organizationId)) {
+    return null;
+  }
+
+  return supportTeamRepository.findByIdAndOrganization(
+    id,
+    organizationId
+  );
 };
 
 // ==========================================
@@ -81,20 +98,31 @@ export const updateSupportTeam = async (
     isActive: boolean;
   }>
 ): Promise<ISupportTeam | null> => {
-  const supportTeam =
-    await SupportTeam.findOneAndUpdate(
-      {
-        _id: id,
-        organizationId,
-      },
-      data,
-      {
-        new: true,
-        runValidators: true,
-      }
-    );
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return null;
+  }
 
-  return supportTeam;
+  if (!mongoose.Types.ObjectId.isValid(organizationId)) {
+    return null;
+  }
+
+  const updateData: Partial<ISupportTeam> = {
+    name: data.name,
+    description: data.description,
+    isActive: data.isActive,
+  };
+
+  if (data.members !== undefined) {
+    updateData.members = data.members.map(
+      (memberId) => new mongoose.Types.ObjectId(memberId)
+    );
+  }
+
+  return supportTeamRepository.updateByIdAndOrganization(
+    id,
+    organizationId,
+    updateData
+  );
 };
 
 // ==========================================
@@ -105,8 +133,16 @@ export const deleteSupportTeam = async (
   id: string,
   organizationId: string
 ): Promise<ISupportTeam | null> => {
-  return SupportTeam.findOneAndDelete({
-    _id: id,
-    organizationId,
-  });
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return null;
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(organizationId)) {
+    return null;
+  }
+
+  return supportTeamRepository.deleteByIdAndOrganization(
+    id,
+    organizationId
+  );
 };

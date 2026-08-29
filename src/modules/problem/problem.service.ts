@@ -7,7 +7,7 @@ import {
   ProblemUrgency,
 } from "./problem.model";
 
-import AuthUser from "../auth/auth.model";
+import { authRepository } from "../auth/auth.repository";
 import { problemRepository } from "./problem.repository";
 
 // ==========================================
@@ -57,17 +57,26 @@ export const createProblem = async (
     );
   }
 
-  const reporter = await AuthUser.findOne({
-    _id: data.reportedBy,
-    organizationId: data.organizationId,
-    isActive: true,
-  });
+  // ==========================================
+  // VALIDATE REPORTER
+  // ==========================================
+
+  const reporter =
+    await authRepository.findOne({
+      _id: data.reportedBy,
+      organizationId: data.organizationId,
+      isActive: true,
+    });
 
   if (!reporter) {
     throw new Error(
       "Reporter does not belong to this organization"
     );
   }
+
+  // ==========================================
+  // CREATE PROBLEM
+  // ==========================================
 
   return problemRepository.create({
     problemId: data.problemId,
@@ -77,8 +86,13 @@ export const createProblem = async (
     impact: data.impact || "Medium",
     urgency: data.urgency || "Medium",
     status: "Open",
-    reportedBy: new mongoose.Types.ObjectId(data.reportedBy),
-organizationId: new mongoose.Types.ObjectId(data.organizationId),
+    reportedBy: new mongoose.Types.ObjectId(
+      data.reportedBy
+    ),
+    organizationId:
+      new mongoose.Types.ObjectId(
+        data.organizationId
+      ),
   });
 };
 
@@ -121,9 +135,17 @@ export const updateProblem = async (
   organizationId: string,
   data: UpdateProblemData
 ) => {
+  // ==========================================
+  // VALIDATE PROBLEM ID
+  // ==========================================
+
   if (!mongoose.Types.ObjectId.isValid(id)) {
     return null;
   }
+
+  // ==========================================
+  // FIND EXISTING PROBLEM
+  // ==========================================
 
   const problem =
     await problemRepository.findOne({
@@ -184,11 +206,12 @@ export const updateProblem = async (
       );
     }
 
-    const employee = await AuthUser.findOne({
-      _id: data.assignedTo,
-      organizationId,
-      isActive: true,
-    });
+    const employee =
+      await authRepository.findOne({
+        _id: data.assignedTo,
+        organizationId,
+        isActive: true,
+      });
 
     if (!employee) {
       throw new Error(
@@ -210,9 +233,9 @@ export const updateProblem = async (
   // ==========================================
 
   if (requestedStatus) {
-    // ----------------------------------------
+    // ========================================
     // OPEN
-    // ----------------------------------------
+    // ========================================
 
     if (requestedStatus === "Open") {
       if (currentStatus !== "Open") {
@@ -222,9 +245,9 @@ export const updateProblem = async (
       }
     }
 
-    // ----------------------------------------
+    // ========================================
     // UNDER INVESTIGATION
-    // ----------------------------------------
+    // ========================================
 
     if (
       requestedStatus ===
@@ -240,9 +263,9 @@ export const updateProblem = async (
       }
     }
 
-    // ----------------------------------------
+    // ========================================
     // KNOWN ERROR
-    // ----------------------------------------
+    // ========================================
 
     if (
       requestedStatus === "Known Error"
@@ -258,9 +281,9 @@ export const updateProblem = async (
       }
     }
 
-    // ----------------------------------------
+    // ========================================
     // RESOLVED
-    // ----------------------------------------
+    // ========================================
 
     if (
       requestedStatus === "Resolved"
@@ -287,9 +310,9 @@ export const updateProblem = async (
       updateData.resolvedAt = new Date();
     }
 
-    // ----------------------------------------
+    // ========================================
     // CLOSED
-    // ----------------------------------------
+    // ========================================
 
     if (
       requestedStatus === "Closed"
@@ -305,7 +328,7 @@ export const updateProblem = async (
   }
 
   // ==========================================
-  // UPDATE DATABASE
+  // UPDATE DATABASE THROUGH REPOSITORY
   // ==========================================
 
   return problemRepository.updateByIdAndOrganization(

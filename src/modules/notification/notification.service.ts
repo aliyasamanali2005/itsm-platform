@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-import Notification from "./notification.model";
+import { notificationRepository } from "./notification.repository";
 
 import {
   NotificationType,
@@ -95,7 +95,7 @@ export const createNotification = async (
     };
   }
 
-  const notification = await Notification.create({
+  return notificationRepository.create({
     notificationId:
       data.notificationId ||
       generateNotificationId(),
@@ -117,8 +117,6 @@ export const createNotification = async (
 
     relatedEntity,
   });
-
-  return notification;
 };
 
 // ==========================================
@@ -139,17 +137,10 @@ export const getUserNotifications = async (
     "organization ID"
   );
 
-  return Notification.find({
+  return notificationRepository.findByUser(
     recipient,
-    organizationId: orgId,
-  })
-    .populate(
-      "recipient",
-      "name email role"
-    )
-    .sort({
-      createdAt: -1,
-    });
+    orgId
+  );
 };
 
 // ==========================================
@@ -178,13 +169,10 @@ export const getNotificationById = async (
   );
 
   const notification =
-    await Notification.findOne({
-      _id: notificationObjectId,
-      recipient: userObjectId,
-      organizationId: orgObjectId,
-    }).populate(
-      "recipient",
-      "name email role"
+    await notificationRepository.findByIdForUser(
+      notificationObjectId,
+      userObjectId,
+      orgObjectId
     );
 
   if (!notification) {
@@ -215,14 +203,10 @@ export const getUnreadNotificationCount =
       "organization ID"
     );
 
-    const count =
-      await Notification.countDocuments({
-        recipient,
-        organizationId: orgId,
-        status: "Unread",
-      });
-
-    return count;
+    return notificationRepository.countUnread(
+      recipient,
+      orgId
+    );
   };
 
 // ==========================================
@@ -252,22 +236,10 @@ export const markNotificationAsRead =
     );
 
     const notification =
-      await Notification.findOneAndUpdate(
-        {
-          _id: notificationObjectId,
-          recipient,
-          organizationId: orgId,
-        },
-        {
-          $set: {
-            status: "Read",
-            readAt: new Date(),
-          },
-        },
-        {
-          new: true,
-          runValidators: true,
-        }
+      await notificationRepository.markAsRead(
+        notificationObjectId,
+        recipient,
+        orgId
       );
 
     if (!notification) {
@@ -299,18 +271,9 @@ export const markAllNotificationsAsRead =
     );
 
     const result =
-      await Notification.updateMany(
-        {
-          recipient,
-          organizationId: orgId,
-          status: "Unread",
-        },
-        {
-          $set: {
-            status: "Read",
-            readAt: new Date(),
-          },
-        }
+      await notificationRepository.markAllAsRead(
+        recipient,
+        orgId
       );
 
     return {
@@ -345,11 +308,11 @@ export const deleteNotification = async (
   );
 
   const notification =
-    await Notification.findOneAndDelete({
-      _id: notificationObjectId,
+    await notificationRepository.deleteForUser(
+      notificationObjectId,
       recipient,
-      organizationId: orgId,
-    });
+      orgId
+    );
 
   if (!notification) {
     throw new Error(

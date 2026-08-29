@@ -1,3 +1,4 @@
+
 import mongoose from "mongoose";
 
 import RCA, {
@@ -45,23 +46,41 @@ interface UpdateRCAData {
 // HELPERS
 // ==========================================
 
-const isValidObjectId = (
-  id: string
-): boolean => {
+const isValidObjectId = (id: string): boolean => {
   return mongoose.Types.ObjectId.isValid(id);
+};
+
+/**
+ * Safely extracts an ObjectId/string value.
+ *
+ * Handles:
+ * - ObjectId
+ * - string
+ * - populated document with _id
+ */
+const getObjectIdString = (value: unknown): string => {
+  if (!value) {
+    return "";
+  }
+
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "_id" in value
+  ) {
+    const populatedValue = value as {
+      _id?: mongoose.Types.ObjectId | string;
+    };
+
+    return populatedValue._id?.toString() ?? "";
+  }
+
+  return value.toString();
 };
 
 /**
  * Removes blank / whitespace-only values
  * from string arrays.
- *
- * Example:
- *
- * ["Replace switch", "", "  ", "Test ports"]
- *
- * becomes:
- *
- * ["Replace switch", "Test ports"]
  */
 const cleanStringArray = (
   values?: string[]
@@ -88,28 +107,19 @@ const validateRCAStatusTransition = (
   newStatus: RCAStatus,
   userRole: "admin" | "employee"
 ): void => {
-  // ========================================
-  // APPROVED RCA IS IMMUTABLE
-  // ========================================
-
+  // Approved RCA is immutable
   if (currentStatus === "Approved") {
     throw new Error(
       "Approved RCA cannot be modified"
     );
   }
 
-  // ========================================
-  // SAME STATUS
-  // ========================================
-
+  // Same status is allowed
   if (newStatus === currentStatus) {
     return;
   }
 
-  // ========================================
-  // APPROVAL IS ADMIN ONLY
-  // ========================================
-
+  // Only admins can approve
   if (newStatus === "Approved") {
     if (userRole !== "admin") {
       throw new Error(
@@ -125,26 +135,6 @@ const validateRCAStatusTransition = (
 
     return;
   }
-
-  // ========================================
-  // ALLOWED WORKFLOW
-  // ========================================
-  //
-  // Draft
-  //   ├── Under Investigation
-  //   └── Completed
-  //
-  // Under Investigation
-  //   ├── Draft
-  //   └── Completed
-  //
-  // Completed
-  //   └── Under Investigation
-  //
-  // Approved
-  //   └── IMMUTABLE
-  //
-  // ========================================
 
   const allowedTransitions: Record<
     RCAStatus,
@@ -199,40 +189,28 @@ export const createRCA = async (
     status = "Draft",
   } = data;
 
-  // ========================================
-  // VALIDATE ORGANIZATION ID
-  // ========================================
-
+  // Validate organization
   if (!isValidObjectId(organizationId)) {
     throw new Error(
       "Invalid organization ID"
     );
   }
 
-  // ========================================
-  // VALIDATE PROBLEM ID
-  // ========================================
-
+  // Validate problem
   if (!isValidObjectId(problem)) {
     throw new Error(
       "Invalid problem ID"
     );
   }
 
-  // ========================================
-  // VALIDATE IDENTIFIED BY
-  // ========================================
-
+  // Validate identifying user
   if (!isValidObjectId(identifiedBy)) {
     throw new Error(
       "Invalid identifiedBy user ID"
     );
   }
 
-  // ========================================
-  // VALIDATE INITIAL STATUS
-  // ========================================
-
+  // New RCA must always start as Draft
   if (status !== "Draft") {
     throw new Error(
       "A new RCA must start in Draft status"
@@ -403,11 +381,7 @@ export const getRCAsByOrganization =
   async (
     organizationId: string
   ): Promise<IRCA[]> => {
-    if (
-      !isValidObjectId(
-        organizationId
-      )
-    ) {
+    if (!isValidObjectId(organizationId)) {
       throw new Error(
         "Invalid organization ID"
       );
@@ -452,11 +426,7 @@ export const getRCAById = async (
     );
   }
 
-  if (
-    !isValidObjectId(
-      organizationId
-    )
-  ) {
+  if (!isValidObjectId(organizationId)) {
     throw new Error(
       "Invalid organization ID"
     );
@@ -494,21 +464,13 @@ export const getRCAByProblem =
     problemId: string,
     organizationId: string
   ): Promise<IRCA | null> => {
-    if (
-      !isValidObjectId(
-        problemId
-      )
-    ) {
+    if (!isValidObjectId(problemId)) {
       throw new Error(
         "Invalid problem ID"
       );
     }
 
-    if (
-      !isValidObjectId(
-        organizationId
-      )
-    ) {
+    if (!isValidObjectId(organizationId)) {
       throw new Error(
         "Invalid organization ID"
       );
@@ -557,11 +519,7 @@ export const updateRCA = async (
     );
   }
 
-  if (
-    !isValidObjectId(
-      organizationId
-    )
-  ) {
+  if (!isValidObjectId(organizationId)) {
     throw new Error(
       "Invalid organization ID"
     );
@@ -587,10 +545,7 @@ export const updateRCA = async (
   // APPROVED RCA IMMUTABILITY
   // ========================================
 
-  if (
-    existingRCA.status ===
-    "Approved"
-  ) {
+  if (existingRCA.status === "Approved") {
     throw new Error(
       "Approved RCA cannot be modified"
     );
@@ -616,25 +571,19 @@ export const updateRCA = async (
     ...data,
   };
 
-  // ========================================
-  // PREVENT IDENTIFIED BY MANIPULATION
-  // ========================================
-
+  // identifiedBy cannot be changed
   delete updateData.identifiedBy;
 
   // ========================================
   // CLEAN ROOT CAUSE
   // ========================================
 
-  if (
-    data.rootCause !== undefined
-  ) {
+  if (data.rootCause !== undefined) {
     const cleaned =
       data.rootCause.trim();
 
     if (cleaned) {
-      updateData.rootCause =
-        cleaned;
+      updateData.rootCause = cleaned;
     } else {
       delete updateData.rootCause;
     }
@@ -644,9 +593,7 @@ export const updateRCA = async (
   // CLEAN INVESTIGATION
   // ========================================
 
-  if (
-    data.investigation !== undefined
-  ) {
+  if (data.investigation !== undefined) {
     const cleaned =
       data.investigation.trim();
 
@@ -659,98 +606,37 @@ export const updateRCA = async (
   }
 
   // ========================================
-  // CLEAN CORRECTIVE ACTIONS
+  // CLEAN ARRAY FIELDS
   // ========================================
 
-  if (
-    data.correctiveActions !==
-    undefined
-  ) {
-    const cleaned =
-      cleanStringArray(
-        data.correctiveActions
-      );
+  const arrayFields: Array<
+    keyof Pick<
+      UpdateRCAData,
+      | "correctiveActions"
+      | "contributingFactors"
+      | "preventiveActions"
+      | "lessonsLearned"
+    >
+  > = [
+    "correctiveActions",
+    "contributingFactors",
+    "preventiveActions",
+    "lessonsLearned",
+  ];
 
-    if (
-      cleaned &&
-      cleaned.length > 0
-    ) {
-      updateData.correctiveActions =
-        cleaned;
-    } else {
-      delete updateData.correctiveActions;
-    }
-  }
+  for (const field of arrayFields) {
+    if (data[field] !== undefined) {
+      const cleaned =
+        cleanStringArray(data[field]);
 
-  // ========================================
-  // CLEAN CONTRIBUTING FACTORS
-  // ========================================
-
-  if (
-    data.contributingFactors !==
-    undefined
-  ) {
-    const cleaned =
-      cleanStringArray(
-        data.contributingFactors
-      );
-
-    if (
-      cleaned &&
-      cleaned.length > 0
-    ) {
-      updateData.contributingFactors =
-        cleaned;
-    } else {
-      delete updateData.contributingFactors;
-    }
-  }
-
-  // ========================================
-  // CLEAN PREVENTIVE ACTIONS
-  // ========================================
-
-  if (
-    data.preventiveActions !==
-    undefined
-  ) {
-    const cleaned =
-      cleanStringArray(
-        data.preventiveActions
-      );
-
-    if (
-      cleaned &&
-      cleaned.length > 0
-    ) {
-      updateData.preventiveActions =
-        cleaned;
-    } else {
-      delete updateData.preventiveActions;
-    }
-  }
-
-  // ========================================
-  // CLEAN LESSONS LEARNED
-  // ========================================
-
-  if (
-    data.lessonsLearned !==
-    undefined
-  ) {
-    const cleaned =
-      cleanStringArray(
-        data.lessonsLearned
-      );
-
-    if (
-      cleaned &&
-      cleaned.length > 0
-    ) {
-      updateData.lessonsLearned =
-        cleaned;
-    } else {
-      delete updateData.lessonsLearned;
+      if (
+        cleaned &&
+        cleaned.length > 0
+      ) {
+        updateData[field] = cleaned;
+      } else {
+        delete updateData[field];
+      }
     }
   }
 
@@ -758,14 +644,8 @@ export const updateRCA = async (
   // VALIDATE CHANGED PROBLEM
   // ========================================
 
-  if (
-    data.problem !== undefined
-  ) {
-    if (
-      !isValidObjectId(
-        data.problem
-      )
-    ) {
+  if (data.problem !== undefined) {
+    if (!isValidObjectId(data.problem)) {
       throw new Error(
         "Invalid problem ID"
       );
@@ -783,13 +663,14 @@ export const updateRCA = async (
       );
     }
 
-    // --------------------------------------
-    // PREVENT DUPLICATE RCA
-    // --------------------------------------
+    const existingProblemId =
+      getObjectIdString(
+        existingRCA.problem
+      );
 
+    // Prevent duplicate RCA for problem
     if (
-      data.problem !==
-      existingRCA.problem.toString()
+      data.problem !== existingProblemId
     ) {
       const problemRCA =
         await RCA.findOne({
@@ -812,16 +693,11 @@ export const updateRCA = async (
   // VALIDATE RELATED INCIDENTS
   // ========================================
 
-  if (
-    data.relatedIncidents !==
-    undefined
-  ) {
+  if (data.relatedIncidents !== undefined) {
     const invalidIncidentId =
       data.relatedIncidents.find(
         (incidentId) =>
-          !isValidObjectId(
-            incidentId
-          )
+          !isValidObjectId(incidentId)
       );
 
     if (invalidIncidentId) {
@@ -830,15 +706,11 @@ export const updateRCA = async (
       );
     }
 
-    if (
-      data.relatedIncidents.length >
-      0
-    ) {
+    if (data.relatedIncidents.length > 0) {
       const incidents =
         await Incident.find({
           _id: {
-            $in:
-              data.relatedIncidents,
+            $in: data.relatedIncidents,
           },
           organizationId,
         });
@@ -855,7 +727,7 @@ export const updateRCA = async (
   }
 
   // ========================================
-  // VALIDATE STATUS-SPECIFIC DATA
+  // VALIDATE COMPLETION DATA
   // ========================================
 
   if (
@@ -939,10 +811,7 @@ export const updateRCA = async (
         organizationId,
       }).select("status");
 
-    if (
-      currentRCA?.status ===
-      "Approved"
-    ) {
+    if (currentRCA?.status === "Approved") {
       throw new Error(
         "Approved RCA cannot be modified"
       );
@@ -974,11 +843,7 @@ export const deleteRCA = async (
     );
   }
 
-  if (
-    !isValidObjectId(
-      organizationId
-    )
-  ) {
+  if (!isValidObjectId(organizationId)) {
     throw new Error(
       "Invalid organization ID"
     );
@@ -1002,10 +867,7 @@ export const deleteRCA = async (
   // PREVENT DELETING APPROVED RCA
   // ========================================
 
-  if (
-    existingRCA.status ===
-    "Approved"
-  ) {
+  if (existingRCA.status === "Approved") {
     throw new Error(
       "Approved RCA cannot be deleted"
     );

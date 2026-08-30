@@ -1,3 +1,4 @@
+
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
@@ -10,8 +11,8 @@ interface RegisterUserData {
   name: string;
   email: string;
   password: string;
-  role?: "admin" | "employee";
   organizationId: string;
+  role?: "admin" | "employee";
 }
 
 interface LoginUserData {
@@ -57,16 +58,17 @@ export const registerUser = async (
     throw new Error("Organization is inactive");
   }
 
-  const hashedPassword = await bcrypt.hash(
-    data.password,
-    10
-  );
+  const hashedPassword = await bcrypt.hash(data.password, 10);
 
   const user = await authRepository.create({
     name: data.name,
     email: data.email.toLowerCase(),
     password: hashedPassword,
-    role: data.role || "employee",
+
+    // Use the requested role when provided.
+    // Default to employee when no role is supplied.
+    role: data.role ?? "employee",
+
     organizationId: new mongoose.Types.ObjectId(
       data.organizationId
     ),
@@ -105,10 +107,9 @@ export const loginUser = async (
     throw new Error("User account is inactive");
   }
 
-  const organization =
-    await organizationRepository.findById(
-      user.organizationId.toString()
-    );
+  const organization = await organizationRepository.findById(
+    user.organizationId.toString()
+  );
 
   if (!organization) {
     throw new Error("Organization not found");
@@ -145,15 +146,11 @@ export const loginUser = async (
 // GENERATE JWT
 // ==========================================
 
-const generateToken = (
-  user: IAuthUser
-): string => {
+const generateToken = (user: IAuthUser): string => {
   const secret = process.env.JWT_SECRET;
 
   if (!secret) {
-    throw new Error(
-      "JWT_SECRET is not configured"
-    );
+    throw new Error("JWT_SECRET is not configured");
   }
 
   return jwt.sign(
@@ -161,8 +158,7 @@ const generateToken = (
       id: user._id.toString(),
       email: user.email,
       role: user.role,
-      organizationId:
-        user.organizationId.toString(),
+      organizationId: user.organizationId.toString(),
     },
     secret,
     {
